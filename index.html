@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
+<title>DFC Rating计算 · v5.3.0</title>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+
+<header class="navbar">
+  <div class="nav-left">
+    <div class="nav-title">🎵 DFC Rating计算</div>
+    <nav class="nav-menu">
+      <button class="nav-btn active" data-page="main">主页面</button>
+      <button class="nav-btn" data-page="preview">谱面预览</button>
+      <button class="nav-btn" data-page="single">单曲计算</button>
+      <button class="nav-btn" data-page="segment">段位计算</button>
+      <button class="nav-btn" data-page="player">玩家</button>
+    </nav>
+  </div>
+  <div class="nav-right">
+    <div class="nav-avatar">
+      <img id="navAvatarImg" style="display:none;" alt="" />
+      <div class="nav-avatar-placeholder" id="navAvatarPh">?</div>
+    </div>
+    <div class="nav-player">
+      <div class="nav-player-name" id="navPlayerName">未设置</div>
+      <div class="nav-player-id" id="navPlayerId">Phira ID: —</div>
+    </div>
+  </div>
+</header>
+
+<main class="page-container">
+  <!-- 主页面 -->
+  <section class="page active" data-page="main">
+    <div class="guide-hint">
+      <span class="hint-icon">💡</span>
+      <span>提示：顶部导航条可横向滑动，查看「谱面预览」「单曲计算」「段位计算」「玩家」等更多页面。</span>
+    </div>
+    <div class="rating-card">
+      <div class="rating-left">
+        <div class="rating-main">
+          <span class="rating-label" id="ratingLabel">游玩 Rating</span>
+          <span class="rating-value" id="displayRating">—</span>
+          <span class="rating-count" id="ratingCountHint">(0 首)</span>
+        </div>
+        <div class="rating-toggle">
+          <button id="avgToggleSum">总和</button>
+          <button id="avgToggleAvg" class="active">平均</button>
+        </div>
+        <div class="rating-meta">
+          <span>成绩更新时间：<strong id="lastCalcTime">—</strong></span>
+        </div>
+      </div>
+      <div class="rating-divider"></div>
+      <div class="rating-right">
+        <div class="player-card">
+          <div class="player-card-avatar">
+            <img id="mainAvatarImg" style="display:none;" alt="" />
+            <div class="player-card-avatar-placeholder" id="mainAvatarPh">头像</div>
+          </div>
+          <div class="player-card-info">
+            <div class="player-card-name" id="mainPlayerName">未设置玩家</div>
+            <div class="player-card-id" id="mainPlayerId">Phira ID: —</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="query-card">
+      <div class="query-title">🔍 自动查询</div>
+      <div class="query-desc">
+        输入 ACC 后点击「计算」按钮更新 Rating，或使用「开始查询」从 Phira 自动获取该玩家的历史最好成绩。
+        当前 Phira ID：<strong id="queryCurrentId">—</strong>
+      </div>
+      <div class="query-controls">
+        <div class="ctrl-group">
+          <label>并发数：</label>
+          <input type="range" id="concurrencySlider" min="8" max="16" value="8" step="1" />
+          <span class="ctrl-value" id="concurrencyValue">8</span>
+        </div>
+        <div class="ctrl-group">
+          <label>
+            <input type="checkbox" id="truncateToggle" checked />
+            截断
+          </label>
+          <input type="number" id="maxRankInput" value="1200" min="1" step="1" />
+          <span class="ctrl-hint">超过此排名则停止</span>
+        </div>
+        <div class="ctrl-group ctrl-buttons">
+          <button class="btn btn-primary" id="queryStartBtn">▶ 开始查询</button>
+          <button class="btn btn-danger" id="queryStopBtn" style="display:none;">⏹ 停止</button>
+          <button class="btn btn-success" id="calcBtn">⚡ 计算</button>
+          <button class="btn btn-outline" id="exportScoresBtn">📤 导出成绩</button>
+          <button class="btn btn-outline" id="clearBtn">✕ 清空ACC</button>
+        </div>
+      </div>
+      <div class="query-progress-wrap">
+        <div class="query-progress-bar-wrap" id="progressBarWrap">
+          <div class="query-progress-bar" id="progressBar"></div>
+        </div>
+        <div class="query-progress-info">
+          <span id="queryProgressText">就绪</span>
+          <span id="queryTimer">⏱ 00:00.00</span>
+        </div>
+        <div class="query-current" id="queryCurrentChart"></div>
+      </div>
+    </div>
+
+    <div class="song-table-container">
+      <div class="song-table-header" id="songTableHeader">
+        <table class="song-table-head-table">
+          <colgroup>
+            <col style="width: 84px;" />
+            <col />
+            <col style="width: 70px;" />
+            <col style="width: 100px;" />
+            <col style="width: 110px;" />
+            <col style="width: 100px;" />
+            <col style="width: 110px;" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>曲绘</th>
+              <th>谱面名</th>
+              <th style="text-align:center;">定数</th>
+              <th style="text-align:center;">Chart ID</th>
+              <th style="text-align:center;">ACC (%)</th>
+              <th style="text-align:center;">STACC</th>
+              <th style="text-align:right;">单曲 Rating</th>
+            </tr>
+          </thead>
+        </table>
+      </div>
+      <div class="song-table-body-wrap" id="songTableBodyWrap">
+        <table class="song-table-body-table">
+          <colgroup>
+            <col style="width: 84px;" />
+            <col />
+            <col style="width: 70px;" />
+            <col style="width: 100px;" />
+            <col style="width: 110px;" />
+            <col style="width: 100px;" />
+            <col style="width: 110px;" />
+          </colgroup>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 谱面预览 -->
+  <section class="page" data-page="preview">
+    <div class="preview-header">
+      <h2>📋 谱面预览</h2>
+      <span class="preview-count" id="previewCount">—</span>
+    </div>
+    <div class="guide-hint">
+      <span class="hint-icon">💡</span>
+      <span>提示：点击任意谱面项可进入谱面详情页，查看曲绘、谱师、曲师以及 ACC 进度条。</span>
+    </div>
+    <div class="preview-search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
+      <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
+    </div>
+    <div class="preview-list" id="previewList">
+      <div style="padding:40px;text-align:center;color:#94a3b8;">请先计算成绩</div>
+    </div>
+  </section>
+
+  <!-- 谱面详情 -->
+  <section class="page" data-page="detail">
+    <div class="detail-header">
+      <button class="detail-back-btn" id="detailBackBtn">← 返回谱面预览</button>
+    </div>
+
+    <div class="detail-art-wrap">
+      <div class="detail-art" id="detailArt">
+        <img id="detailArtImg" style="display:none;" alt="" />
+        <div class="detail-art-ph" id="detailArtPh">加载中...</div>
+      </div>
+    </div>
+
+    <div class="detail-body">
+      <div class="detail-info-card">
+        <div class="detail-name" id="detailName">—</div>
+        <div class="detail-row">
+          <span class="detail-label">难度</span>
+          <span class="detail-const-badge" id="detailConstBadge">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Phira ID</span>
+          <span class="detail-value" id="detailChartId">—</span>
+          <button class="detail-copy-btn" id="detailCopyBtn" title="复制谱面 ID">
+            <span id="detailCopyIcon">📋</span>
+            <span id="detailCopyText">复制</span>
+          </button>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">谱师</span>
+          <span class="detail-value" id="detailCharter">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">曲师</span>
+          <span class="detail-value" id="detailComposer">—</span>
+        </div>
+      </div>
+
+      <div class="detail-stats-card">
+        <div class="detail-stats-title">📊 谱面数据</div>
+        <div class="detail-stat-row">
+          <span class="stat-label">黄键占比</span>
+          <span class="stat-value" id="detailYellow" style="color:#facc15;">—</span>
+        </div>
+        <div class="detail-stat-row">
+          <span class="stat-label">过段 ACC</span>
+          <span class="stat-value" id="detailPass" style="color:#3b82f6;">—</span>
+        </div>
+        <div class="detail-stat-row">
+          <span class="stat-label">后光 ACC</span>
+          <span class="stat-value" id="detailBacklight" style="color:#8b5cf6;">—</span>
+        </div>
+        <div class="detail-stat-row">
+          <span class="stat-label">击破 ACC</span>
+          <span class="stat-value" id="detailBreak" style="color:#10b981;">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="acc-meter-card">
+      <div class="acc-meter-title">🎯 ACC 进度条</div>
+      <div class="acc-meter-track" id="accMeterTrack"></div>
+    </div>
+  </section>
+
+  <!-- 单曲计算 -->
+  <section class="page" data-page="single">
+    <div class="single-page-header">
+      <h2>📊 单曲数据计算</h2>
+      <span class="badge">v5.3.0</span>
+    </div>
+
+    <div class="benchmark-section">
+      <div class="bench-item">
+        <span class="label">过段ACC (STACC=97%)：</span>
+        <span class="value" id="benchPass" style="color:#3b82f6;">—</span>
+      </div>
+      <div class="bench-item">
+        <span class="label">后光ACC (STACC=98.5%)：</span>
+        <span class="value" id="benchBacklight" style="color:#8b5cf6;">—</span>
+      </div>
+      <div class="bench-item">
+        <span class="label">击破ACC (STACC=99.5%)：</span>
+        <span class="value" id="benchBreak" style="color:#10b981;">—</span>
+      </div>
+    </div>
+
+    <div class="calc-module">
+      <div class="module-title">① 黄键占比计算 <span class="tag">D</span></div>
+      <div class="module-row">
+        <div class="field"><label>黄键数：</label><input type="number" id="dragCount" placeholder="0" step="1" min="0" /></div>
+        <div class="field"><label>总物量：</label><input type="number" id="totalNotes" placeholder="0" step="1" min="1" /></div>
+        <div class="field"><label>D =</label><span class="result-display d" id="resultD">—</span></div>
+      </div>
+      <div class="module-actions">
+        <button class="btn btn-primary" id="calcD">▶ 计算 D</button>
+        <button class="btn btn-success" id="sendDToModule2">⬇ 传递到模块二</button>
+      </div>
+      <div class="module-hint">黄键占比 = 黄键数 / 总物量，以百分比显示</div>
+    </div>
+
+    <div class="calc-module">
+      <div class="module-title">② ACC ↔ STACC 转换 <span class="tag">D 已知</span></div>
+      <div class="module-row">
+        <div class="field"><label>D (黄键占比)：</label><input type="number" id="module2D" placeholder="如 12.5" step="any" min="0" max="100" /><span style="font-size:13px;color:#64748b;">%</span></div>
+      </div>
+      <div class="module-row">
+        <div class="field"><label>ACC：</label><input type="number" id="module2ACC" placeholder="输入ACC" step="any" min="0" max="100" /><span style="font-size:13px;color:#64748b;">%</span></div>
+        <div class="field"><label>→ STACC：</label><span class="result-display stacc" id="resultSTACC">—</span></div>
+      </div>
+      <div class="module-row">
+        <div class="field"><label>STACC：</label><input type="number" id="module2STACC" placeholder="输入STACC" step="any" min="0" max="100" /><span style="font-size:13px;color:#64748b;">%</span></div>
+        <div class="field"><label>→ ACC：</label><span class="result-display acc" id="resultACC">—</span></div>
+      </div>
+      <div class="module-actions">
+        <button class="btn btn-success" id="sendToModule3">⬇ 传递到模块三</button>
+      </div>
+      <div class="module-hint">输入ACC自动计算STACC，输入STACC自动计算ACC，输入D值后生效</div>
+    </div>
+
+    <div class="calc-module">
+      <div class="module-title">③ 单曲 Rating 计算 <span class="tag">STACC 已知</span></div>
+      <div class="module-row">
+        <div class="field"><label>曲目难度（定数）：</label><input type="number" id="module3Constant" placeholder="如 17.5" step="any" min="0" /></div>
+        <div class="field"><label>STACC：</label><input type="number" id="module3STACC" placeholder="输入STACC" step="any" min="0" max="100" /><span style="font-size:13px;color:#64748b;">%</span></div>
+        <div class="field"><label>Rating =</label><span class="result-display rating" id="resultRating">—</span></div>
+      </div>
+      <div class="module-actions">
+        <button class="btn btn-primary" id="calcRating">▶ 计算 Rating</button>
+      </div>
+      <div class="module-hint">Rating = 定数 × 倍率（倍率由STACC通过分段函数决定）</div>
+    </div>
+  </section>
+
+  <!-- 段位计算 -->
+  <section class="page" data-page="segment">
+    <div class="segment-header">
+      <h2>🎯 段位计算</h2>
+      <div class="seg-header-actions">
+        <button class="btn btn-outline" id="segUploadAvatarBtn">📁 上传头像</button>
+        <span class="seg-avatar-status" id="segAvatarStatus">未上传</span>
+        <input type="file" id="segAvatarFileInput" accept="image/*" style="display:none;" />
+        <button class="btn btn-success" id="segExportBtn">📷 导出图片</button>
+        <button class="btn btn-outline" id="segResetBtn">↺ 重置</button>
+      </div>
+    </div>
+    <div class="guide-hint">
+      <span class="hint-icon">💡</span>
+      <span>提示：输入数据后，推荐使用右上角的「📷 导出图片」按钮，将当前数据导出为 PNG 图片保存或分享。</span>
+    </div>
+    <div class="guide-hint warn">
+      <span class="hint-icon">⚠️</span>
+      <span>注意：导出的图片中，玩家头像需要从本地上传（点击「📁 上传头像」按钮）。从 Phira 自动获取的头像无法渲染到导出图片中，这是浏览器跨域限制导致的。</span>
+    </div>
+    <div class="seg-config-card">
+      <div class="seg-preset-row">
+        <div class="seg-preset-selector">
+          <div class="seg-preset-btn" id="segPresetBtn">
+            <span id="segPresetLabel">选择段位</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="seg-preset-dropdown" id="segPresetDropdown"></div>
+        </div>
+        <label class="seg-custom-toggle">
+          <input type="checkbox" id="segCustomToggle" /> 自定义段位
+        </label>
+      </div>
+
+      <div class="seg-notes-group">
+        <div class="field"><label>N₁</label><input type="number" id="segN1" value="1200" step="1" min="1" /></div>
+        <div class="field"><label>N₂</label><input type="number" id="segN2" value="1100" step="1" min="1" /></div>
+        <div class="field"><label>N₃</label><input type="number" id="segN3" value="1300" step="1" min="1" /></div>
+        <div class="field"><label>N₄</label><input type="number" id="segN4" value="1050" step="1" min="1" /></div>
+      </div>
+
+      <div class="seg-info-row hidden" id="segInfoRow">
+        <div class="acc-standards">
+          <div class="std-item"><span class="label">通过</span><span class="value pass" id="segStdPass">--</span></div>
+          <div class="std-item"><span class="label">后光</span><span class="value backlight" id="segStdBacklight">--</span></div>
+          <div class="std-item"><span class="label">击破</span><span class="value break" id="segStdBreak">--</span></div>
+        </div>
+        <div class="author-info">谱师：<span class="author-name" id="segAuthorName">--</span></div>
+      </div>
+    </div>
+
+    <div class="seg-cards">
+      <div class="calc-module">
+        <div class="module-title">策略一：逆向推导 <span class="tag">已知分段ACC</span></div>
+        <div class="seg-input-row">
+          <div class="field"><label>A₁（第1首结束）</label><input type="number" id="segA1" step="any" min="0" max="100" placeholder="0~100" /></div>
+          <div class="field"><label>A₂（前2首结束）</label><input type="number" id="segA2" step="any" min="0" max="100" placeholder="0~100" /></div>
+        </div>
+        <div class="seg-input-row">
+          <div class="field"><label>A₃（前3首结束）</label><input type="number" id="segA3" step="any" min="0" max="100" placeholder="0~100" /></div>
+          <div class="field"><label>A₄（全部结束）</label><input type="number" id="segA4" step="any" min="0" max="100" placeholder="0~100" /></div>
+        </div>
+        <div class="module-actions">
+          <button class="btn btn-primary" id="segBtnReverse">⬅️ 逆向推导</button>
+          <button class="btn btn-success" id="segBtnFillForward" disabled>⬇️ 填入策略二</button>
+        </div>
+        <div class="seg-result-area" id="segResultReverse">
+          <div class="hint-default">输入分段ACC后点击推导</div>
+        </div>
+      </div>
+
+      <div class="calc-module">
+        <div class="module-title">策略二：正向合成 <span class="tag">已知单曲ACC</span></div>
+        <div class="seg-input-row">
+          <div class="field"><label>S₁</label><input type="number" id="segS1" step="any" min="0" max="100" placeholder="0~100" /></div>
+          <div class="field"><label>S₂</label><input type="number" id="segS2" step="any" min="0" max="100" placeholder="0~100" /></div>
+        </div>
+        <div class="seg-input-row">
+          <div class="field"><label>S₃</label><input type="number" id="segS3" step="any" min="0" max="100" placeholder="0~100" /></div>
+          <div class="field"><label>S₄</label><input type="number" id="segS4" step="any" min="0" max="100" placeholder="0~100" /></div>
+        </div>
+        <div class="module-actions">
+          <button class="btn btn-primary" id="segBtnForward">➡️ 正向合成</button>
+        </div>
+        <div class="seg-result-area" id="segResultForward">
+          <div class="hint-default">输入单曲ACC后点击合成</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="seg-charts">
+      <div class="seg-chart-box">
+        <h3>📈 分段ACC (折线图)</h3>
+        <canvas id="segLineChart"></canvas>
+      </div>
+      <div class="seg-chart-box">
+        <h3>📊 单曲ACC (柱状图)</h3>
+        <canvas id="segBarChart"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- 玩家 -->
+  <section class="page" data-page="player">
+    <div class="player-page-header">
+      <h2>👤 玩家信息</h2>
+    </div>
+    <div class="player-page-body">
+      <div class="player-page-avatar">
+        <img id="playerPageAvatarImg" style="display:none;" alt="" />
+        <div class="player-page-avatar-placeholder" id="playerPageAvatarPh">头像</div>
+      </div>
+      <div class="player-page-form">
+        <div class="form-row">
+          <label>玩家名</label>
+          <span class="form-value" id="playerPageName">—</span>
+        </div>
+        <div class="form-row">
+          <label>Phira ID</label>
+          <input type="number" id="playerPageIdInput" placeholder="输入 Phira ID" />
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="playerPageSaveBtn">确认修改</button>
+          <button class="btn btn-outline" id="playerPageJumpBtn">🔗 跳转到 Phira 玩家页面</button>
+          <button class="btn btn-outline" id="playerPageClearBtn" style="color:#dc2626;border-color:#fca5a5;">🗑️ 清理本地数据</button>
+        </div>
+        <div class="form-hint">
+          ⚠️ 修改 Phira ID 后，主页面的所有 ACC 数据都会被清空，以防不同玩家的数据混在一起。玩家名字与头像将在确认后自动重新获取。
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="exportContainer"></div>
+<script src="data-songs.js"></script>
+<script src="data-segments.js"></script>
+<script src="rating-core.js"></script>
+<script src="utils.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
