@@ -50,6 +50,7 @@ const queryStartBtn = $('queryStartBtn');
 const queryStopBtn = $('queryStopBtn');
 const calcBtn = $('calcBtn');
 const exportScoresBtn = $('exportScoresBtn');
+const exportB50Btn = $('exportB50Btn');
 const clearBtn = $('clearBtn');
 const progressBarWrap = $('progressBarWrap');
 const progressBar = $('progressBar');
@@ -64,7 +65,9 @@ const previewSearchClear = $('previewSearchClear');
 
 // 详情页 DOM
 const detailBackBtn = $('detailBackBtn');
+const detailExportBtn = $('detailExportBtn');
 const detailArtImg = $('detailArtImg');
+const detailLoadingImg = $('detailLoadingImg');
 const detailArtPh = $('detailArtPh');
 const detailName = $('detailName');
 const detailConstBadge = $('detailConstBadge');
@@ -129,10 +132,11 @@ const segExportBtn = $('segExportBtn');
 const segLineChart = $('segLineChart');
 const segBarChart = $('segBarChart');
 const exportContainer = $('exportContainer');
-const segUploadAvatarBtn = $('segUploadAvatarBtn');
-const segAvatarFileInput = $('segAvatarFileInput');
 const segAvatarStatus = $('segAvatarStatus');
 
+const playerUploadAvatarBtn = $('playerUploadAvatarBtn');
+const playerAvatarFileInput = $('playerAvatarFileInput');
+const playerPageAvatarStatus = $('playerPageAvatarStatus');
 // ============================================================
 // 6. 状态
 // ============================================================
@@ -243,6 +247,7 @@ function updatePlayerUI() {
   }
   queryCurrentId.textContent = playerId || '未设置';
   updateSegAvatarStatus();
+  updatePlayerAvatarStatus();
 }
 
 function updateSegAvatarStatus() {
@@ -253,6 +258,20 @@ function updateSegAvatarStatus() {
   } else {
     segAvatarStatus.textContent = '未上传';
     segAvatarStatus.classList.remove('uploaded');
+  }
+}
+
+function updatePlayerAvatarStatus() {
+  if (!playerPageAvatarStatus) return;
+  if (localAvatarDataURL) {
+    playerPageAvatarStatus.textContent = '已上传本地头像';
+    playerPageAvatarStatus.style.color = '#10b981';
+  } else if (playerAvatar) {
+    playerPageAvatarStatus.textContent = '在线头像（导出不可用）';
+    playerPageAvatarStatus.style.color = '#f59e0b';
+  } else {
+    playerPageAvatarStatus.textContent = '未获取';
+    playerPageAvatarStatus.style.color = '#94a3b8';
   }
 }
 
@@ -452,6 +471,72 @@ function resumeIllustLoading() {
     if (document.body.contains(el)) loadArtBox(el);
   });
   pendingIllustBoxes.clear();
+}
+
+// ================= 后台预加载原图（空闲时进行，查询等任务时暂停） =================
+let preloadRunning = false;
+let preloadAborted = false;
+
+async function preloadAllFullCovers() {
+  if (preloadRunning) return;
+  preloadRunning = true;
+  preloadAborted = false;
+
+  // 等 manifest 就绪
+  await localCoverManifestReady;
+
+  if (!localCoverManifest) {
+    console.log('📷 无本地 manifest，跳过原图预加载');
+    preloadRunning = false;
+    return;
+  }
+
+  const songs = SONG_DATA.filter(s => s.chartId && localCoverManifest[String(s.chartId)]);
+  const total = songs.length;
+  let loadedCount = 0;
+
+  console.log(`📷 开始预加载原图，共 ${total} 张`);
+
+  for (const song of songs) {
+    if (preloadAborted) break;
+
+    // 如果当前有查询等任务在跑，暂停预加载（每 500ms 检查一次）
+    while (illustSuspended && !preloadAborted) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (preloadAborted) break;
+
+    const key = String(song.chartId);
+    const entry = localCoverManifest[key];
+    if (!entry || typeof entry !== 'object' || !entry.full) continue;
+
+    const url = `images/full/${entry.full}`;
+
+    // 走统一队列，与缩略图共享并发限制；查询时队列冻结会自动推迟
+    await new Promise(resolve => {
+      runIllustTask(() => new Promise(res => {
+        const img = new Image();
+        img.onload = () => res();
+        img.onerror = () => res();
+        img.src = url;
+      })).then(resolve).catch(resolve);
+    });
+
+    loadedCount++;
+  }
+
+  preloadRunning = false;
+  if (preloadAborted) {
+    console.log(`📷 原图预加载已中止（已加载 ${loadedCount}/${total}）`);
+  } else {
+    console.log(`📷 原图预加载完成，共 ${loadedCount} 张`);
+  }
+}
+
+// 中止预加载（如需重置状态时调用）
+function abortPreload() {
+  preloadAborted = true;
+  preloadRunning = false;
 }
 
 function makeArtBox(chartId) {
@@ -860,6 +945,468 @@ function exportPlayerScores() {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+// ============================================================
+// 15.5 B50 图片导出
+// ============================================================
+exportB50Btn.addEventListener('click', exportB50Image);
+
+// 把任意比例图片裁剪成 1:1 正方形 DataURL
+// 同源图片走 canvas 处理；跨域图片（Phira URL）返回 null，由调用方回退
+async function makeSquareThumb(url, size = 324) {
+  // 跨域图片（http/https 开头且不是本地相对路径）跳过
+  if (/^https?:\/\//i.test(url)) return null;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const sw = img.naturalWidth;
+        const sh = img.naturalHeight;
+        if (!sw || !sh) { resolve(null); return; }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+
+        // cover 逻辑：等比缩放到能填满正方形，居中裁剪
+        const scale = Math.max(size / sw, size / sh);
+        const dw = sw * scale;
+        const dh = sh * scale;
+        const dx = (size - dw) / 2;
+        const dy = (size - dh) / 2;
+
+        ctx.drawImage(img, dx, dy, dw, dh);
+        const dataUrl = canvas.toDataURL('image/png');
+        resolve(dataUrl);
+      } catch (e) {
+        console.warn('makeSquareThumb 处理失败:', e);
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function exportB50Image() {
+  if (results.length === 0) {
+    alert('没有可导出的成绩数据。\n请先输入 ACC 并点击「⚡ 计算」，或使用「▶ 开始查询」获取成绩。');
+    return;
+  }
+
+  const sorted = [...results].sort((a, b) => b.rating - a.rating);
+  const top50 = sorted.slice(0, TOP_N);
+
+  if (top50.length === 0) {
+    alert('没有可导出的成绩数据。');
+    return;
+  }
+
+  // 统计值
+  const ratings = top50.map(r => r.rating);
+  const sumRating = ratings.reduce((s, v) => s + v, 0);
+  const avgRating = sumRating / ratings.length;
+  const maxRating = Math.max(...ratings);
+  const minRating = Math.min(...ratings);
+
+  // 头像（仅本地 DataURL）
+  const avatarSrc = localAvatarDataURL || '';
+
+  // 按钮进入状态
+  exportB50Btn.disabled = true;
+  const origText = exportB50Btn.textContent;
+  exportB50Btn.textContent = '⏳ 导出中...';
+
+  // 保存 exportContainer 的原有样式
+  const prevWidth = exportContainer.style.width;
+  const prevPadding = exportContainer.style.padding;
+
+  try {
+    // 预加载所有曲绘的 thumb 版本，构建 items
+    const items = [];
+    for (let i = 0; i < top50.length; i++) {
+      const r = top50[i];
+      const song = SONG_DATA[r.index];
+      let illustUrl = NO_COVER_URL;
+      if (song && song.chartId) {
+        const url = await getIllustration(song.chartId, 'thumb');
+        if (url) {
+          // 关键：把图片裁剪成正方形 DataURL，避免 html2canvas 忽略 object-fit 造成拉伸
+          const sq = await makeSquareThumb(url, 324);
+          illustUrl = sq || NO_COVER_URL;
+        }
+      }
+      items.push({
+        rank: i + 1,
+        name: r.name,
+        constant: r.constant,
+        acc: r.acc,
+        stacc: r.stacc,
+        rating: r.rating,
+        illustUrl,
+        constStyle: getConstBadgeStyle(r.constant),
+        staccColor: getStaccColor((r.stacc || 0) / 100)
+      });
+    }
+
+    // 构建 HTML
+    const html = buildB50ExportHTML({
+      playerName: playerName || '未命名玩家',
+      playerId: playerId || '',
+      avatarSrc,
+      avgRating,
+      maxRating,
+      minRating,
+      itemCount: items.length,
+      items
+    });
+
+    // 设置容器为 1700 宽、无 padding，容纳大画布
+    exportContainer.style.width = '1700px';
+    exportContainer.style.padding = '0';
+    exportContainer.innerHTML = html;
+
+    // 等 DOM 布局完成
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // 等所有图片加载完成（最多 10 秒）
+    await new Promise((resolve) => {
+      const imgs = exportContainer.querySelectorAll('img');
+      if (imgs.length === 0) { resolve(); return; }
+      let pending = imgs.length;
+      let done = false;
+      const finish = () => { if (done) return; done = true; resolve(); };
+      imgs.forEach(img => {
+        if (img.complete) {
+          pending--;
+          if (pending === 0) finish();
+        } else {
+          img.addEventListener('load', () => { pending--; if (pending === 0) finish(); }, { once: true });
+          img.addEventListener('error', () => { pending--; if (pending === 0) finish(); }, { once: true });
+        }
+      });
+      setTimeout(finish, 10000);
+    });
+
+    const canvas = await html2canvas(exportContainer, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      width: 1700,
+      height: exportContainer.scrollHeight,
+      imageTimeout: 3000,
+      removeContainer: true,
+    });
+
+    const safePlayer = (playerName || playerId || 'player').replace(/[/\\?%*:|"<>]/g, '_');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `B50_${safePlayer}_${dateStr}.png`;
+    await new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(); return; }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        resolve();
+      }, 'image/png');
+    });
+  } catch (err) {
+    console.error(err);
+    alert('导出 B50 失败：' + err.message);
+  } finally {
+    exportB50Btn.disabled = false;
+    exportB50Btn.textContent = origText;
+    // 恢复容器原始样式
+    exportContainer.style.width = prevWidth;
+    exportContainer.style.padding = prevPadding;
+  }
+}
+
+// 构建 B50 导出 HTML
+function buildB50ExportHTML(d) {
+  const avatarHTML = d.avatarSrc
+    ? `<img class="b50-avatar" src="${d.avatarSrc}" alt="" />`
+    : '';
+
+  const cardsHTML = d.items.map(item => `
+    <div class="b50-card">
+      <div class="b50-art">
+        <img src="${item.illustUrl}" alt="" />
+      </div>
+      <div class="b50-info">
+        <div class="b50-name-row">
+          <div class="b50-name">${escapeHtml(item.name)}</div>
+          <div class="b50-rank">#${item.rank}</div>
+        </div>
+        <div class="b50-row">
+          <span class="b50-const" style="background:${item.constStyle.bg};color:${item.constStyle.color};">${item.constant}</span>
+          <span class="b50-rating">${item.rating.toFixed(2)}</span>
+        </div>
+        <div class="b50-row">
+          <span class="b50-acc">${item.acc.toFixed(2)}%</span>
+          <span class="b50-stacc" style="color:${item.staccColor};">${(item.stacc || 0).toFixed(2)}%</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  return `
+    <style>
+      .b50-wrapper {
+        width: 1700px;
+        background: #ffffff;
+        padding: 40px 40px 36px;
+        font-family: 'Microsoft YaHei', '微软雅黑', 'Segoe UI', Roboto, sans-serif;
+        color: #1e293b;
+        box-sizing: border-box;
+      }
+
+      /* ===== 顶部信息区 ===== */
+      .b50-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+        padding: 4px 4px 20px 4px;
+        border-bottom: 2px solid #e2e8f0;
+        margin-bottom: 26px;
+        position: relative;
+      }
+      /* 底部分割线上的高亮装饰条 */
+      .b50-header::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        width: 96px;
+        height: 2px;
+        background: linear-gradient(90deg, #2563eb, #8b5cf6);
+        border-radius: 2px;
+      }
+      .b50-player {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        min-width: 0;
+      }
+      .b50-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 14px;
+        object-fit: cover;
+        border: 3px solid #2563eb;
+        box-shadow: 0 4px 14px rgba(37,99,235,0.20);
+        flex-shrink: 0;
+        background: #f1f5f9;
+      }
+      .b50-player-info {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .b50-player-name {
+        font-size: 28px;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 560px;
+        letter-spacing: -0.3px;
+      }
+      .b50-player-id {
+        font-size: 14px;
+        color: #64748b;
+        font-weight: 500;
+      }
+      .b50-stats {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .b50-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 10px 20px;
+        background: linear-gradient(135deg, #f8fafc, #eff6ff);
+        border: 1px solid #e0e7ff;
+        border-radius: 12px;
+        min-width: 100px;
+      }
+      .b50-stat-value {
+        font-size: 26px;
+        font-weight: 800;
+        color: #2563eb;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.5px;
+      }
+      .b50-stat-label {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+      }
+
+      /* ===== 卡片网格 ===== */
+      .b50-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 16px 16px;
+      }
+      .b50-card {
+        position: relative;
+        display: flex;
+        height: 108px;
+        background: linear-gradient(135deg, #ffffff 0%, #f8faff 100%);
+        border: 2px solid #3b82f6;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(59,130,246,0.14);
+        box-sizing: border-box;
+      }
+
+      /* 曲绘：固定 1:1 方形，裁剪填充 */
+      .b50-art {
+        flex: 0 0 108px;
+        width: 108px;
+        height: 108px;
+        overflow: hidden;
+        background: #f1f5f9;
+        position: relative;
+      }
+      .b50-art img {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      /* 信息区 */
+      .b50-info {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 4px;
+      }
+      .b50-name-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        min-width: 0;
+      }
+      .b50-name {
+        flex: 1;
+        min-width: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .b50-rank {
+        flex-shrink: 0;
+        background: #0f172a;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.2px;
+      }
+      .b50-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-width: 0;
+      }
+      .b50-const {
+        font-size: 14px;
+        font-weight: 800;
+        padding: 0 9px;
+        border-radius: 5px;
+        line-height: 20px;
+        display: inline-block;
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+      }
+      .b50-rating {
+        font-size: 17px;
+        font-weight: 800;
+        color: #2563eb;
+        font-variant-numeric: tabular-nums;
+        flex-shrink: 0;
+        letter-spacing: -0.3px;
+      }
+      .b50-acc {
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .b50-stacc {
+        font-size: 12px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+    </style>
+    <div class="b50-wrapper">
+      <div class="b50-header">
+        <div class="b50-player">
+          ${avatarHTML}
+          <div class="b50-player-info">
+            <div class="b50-player-name">${escapeHtml(d.playerName)}</div>
+            <div class="b50-player-id">Phira ID: ${escapeHtml(d.playerId || '—')}</div>
+          </div>
+        </div>
+        <div class="b50-stats">
+          <div class="b50-stat">
+            <div class="b50-stat-value">${d.avgRating.toFixed(2)}</div>
+            <div class="b50-stat-label">平均 Rating</div>
+          </div>
+          <div class="b50-stat">
+            <div class="b50-stat-value" style="color:#10b981;">${d.maxRating.toFixed(2)}</div>
+            <div class="b50-stat-label">最高</div>
+          </div>
+          <div class="b50-stat">
+            <div class="b50-stat-value" style="color:#f59e0b;">${d.minRating.toFixed(2)}</div>
+            <div class="b50-stat-label">最低</div>
+          </div>
+          <div class="b50-stat">
+            <div class="b50-stat-value" style="color:#8b5cf6;">${d.itemCount}</div>
+            <div class="b50-stat-label">有效谱面</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="b50-grid">
+        ${cardsHTML}
+      </div>
+    </div>
+  `;
+}
+
 concurrencySlider.addEventListener('input', function() {
   concurrencyValue.textContent = this.value;
   localStorage.setItem(KEY.concurrency, this.value);
@@ -1066,21 +1613,43 @@ function openDetail(songIndex) {
   detailBacklight.textContent = backlightAccPct.toFixed(2) + '%';
   detailBreak.textContent = breakAccPct.toFixed(2) + '%';
 
-  // 曲绘：无 chartId 直接用占位图；有 chartId 统一走 getIllustration（本地图片优先）
+  // 曲绘：无 chartId 直接用占位图；有 chartId 先显示 loading 图，加载完成再切换
+  detailArtImg.style.display = 'none';
+  detailArtPh.style.display = 'none';
+
   if (!song.chartId) {
+    detailLoadingImg.style.display = 'none';
     detailArtImg.src = NO_COVER_URL;
     detailArtImg.style.display = 'block';
-    detailArtPh.style.display = 'none';
   } else {
-    detailArtImg.style.display = 'none';
-    detailArtPh.textContent = '加载中...';
-    detailArtPh.style.display = 'flex';
-    // 详情页 → 使用原图
+    // 先显示 loading 图
+    detailLoadingImg.src = LOADING_COVER_URL;
+    detailLoadingImg.style.display = 'block';
+
     getIllustration(song.chartId, 'full').then(url => {
       if (detailCurrentSong !== song) return;
-      detailArtImg.src = url || NO_COVER_URL;
-      detailArtImg.style.display = 'block';
-      detailArtPh.style.display = 'none';
+      if (!url) {
+        // 无图：直接换成占位图
+        detailLoadingImg.style.display = 'none';
+        detailArtImg.src = NO_COVER_URL;
+        detailArtImg.style.display = 'block';
+        return;
+      }
+      // 用 Image 对象预检查，等真正加载完再切换，避免闪白
+      const tempImg = new Image();
+      tempImg.onload = () => {
+        if (detailCurrentSong !== song) return;
+        detailArtImg.src = url;
+        detailArtImg.style.display = 'block';
+        detailLoadingImg.style.display = 'none';
+      };
+      tempImg.onerror = () => {
+        if (detailCurrentSong !== song) return;
+        detailArtImg.src = NO_COVER_URL;
+        detailArtImg.style.display = 'block';
+        detailLoadingImg.style.display = 'none';
+      };
+      tempImg.src = url;
     });
   }
 
@@ -1173,6 +1742,428 @@ function renderAccMeter(song, passAcc, backlightAcc, breakAcc) {
     <div class="arrow-label">你的 ACC</div>
   `;
   accMeterTrack.appendChild(arrow);
+}
+
+// ============================================================
+// 17.1 单曲成绩导出（详情页）
+// ============================================================
+detailExportBtn.addEventListener('click', detailExportImage);
+
+async function detailExportImage() {
+  if (!detailCurrentSong) { alert('请先打开一个谱面详情'); return; }
+  const song = detailCurrentSong;
+  const songIndex = SONG_DATA.indexOf(song);
+  if (songIndex < 0) return;
+
+  // 玩家 ACC
+  const accStr = inputs[songIndex] ? inputs[songIndex].value.trim() : '';
+  const acc = parseFloat(accStr);
+  if (accStr === '' || isNaN(acc) || acc < 0 || acc > 100) {
+    alert('该谱面未填写 ACC，无法导出成绩图');
+    return;
+  }
+
+  // 基础计算
+  const D = song.yellowRatio || 0;
+  const stacc = calcSTACC(acc / 100, D);
+  const staccPct = stacc !== null ? stacc * 100 : 0;
+  const rating = calcSingleRating(song.constant, stacc || 0);
+
+  // 三个基准 ACC
+  const passAcc = calcACCFromSTACC(0.97, D);
+  const backlightAcc = calcACCFromSTACC(0.985, D);
+  const breakAcc = calcACCFromSTACC(0.995, D);
+  const passPct = passAcc !== null ? passAcc * 100 : 0;
+  const backlightPct = backlightAcc !== null ? backlightAcc * 100 : 0;
+  const breakPct = breakAcc !== null ? breakAcc * 100 : 0;
+
+  // B50 排名
+  const sorted = [...results].sort((a, b) => b.rating - a.rating);
+  const b50 = sorted.slice(0, TOP_N);
+  const idxInB50 = b50.findIndex(r => r.index === songIndex);
+  const rankText = idxInB50 >= 0 ? ('#' + (idxInB50 + 1)) : '未进入 B50';
+
+  // 曲绘 URL（本地原图）
+  const illustUrl = await getIllustration(song.chartId, 'full');
+  if (!illustUrl) {
+    alert('该谱面无曲绘，无法导出');
+    return;
+  }
+
+  // 预加载曲绘，获取真实尺寸，用于让容器跟随图片比例
+  const imgSize = await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = illustUrl;
+  });
+
+  // 根据图片比例计算展示尺寸（最长边不超过上限）
+  const MAX_ART_W = 460;
+  const MAX_ART_H = 320;
+  let artW = 440, artH = 248;
+  if (imgSize && imgSize.w > 0 && imgSize.h > 0) {
+    const scale = Math.min(MAX_ART_W / imgSize.w, MAX_ART_H / imgSize.h);
+    artW = Math.round(imgSize.w * scale);
+    artH = Math.round(imgSize.h * scale);
+  }
+
+  // 头像（仅使用本地上传的 DataURL）
+  const avatarSrc = localAvatarDataURL || '';
+  const pName = playerName || '未命名玩家';
+
+  // STACC 颜色
+  const staccColor = getStaccColor(stacc);
+
+  // 难度样式
+  const cStyle = getConstBadgeStyle(song.constant);
+
+  // 按钮进入状态
+  detailExportBtn.disabled = true;
+  const originalText = detailExportBtn.textContent;
+  detailExportBtn.textContent = '⏳ 导出中...';
+
+  try {
+    const html = buildSoloExportHTML({
+      song,
+      illustUrl,
+      artW,
+      artH,
+      avatarSrc,
+      playerName: pName,
+      acc,
+      staccPct,
+      staccColor,
+      rating,
+      rankText,
+      cStyle,
+      passPct,
+      backlightPct,
+      breakPct
+    });
+    exportContainer.innerHTML = html;
+
+    // 等图片 DOM 就绪
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // 额外等图片元素真正 onload
+    await new Promise((resolve) => {
+      const imgs = exportContainer.querySelectorAll('img');
+      if (imgs.length === 0) { resolve(); return; }
+      let pending = imgs.length;
+      imgs.forEach(img => {
+        if (img.complete) {
+          pending--;
+          if (pending === 0) resolve();
+        } else {
+          img.addEventListener('load', () => { pending--; if (pending === 0) resolve(); });
+          img.addEventListener('error', () => { pending--; if (pending === 0) resolve(); });
+        }
+      });
+    });
+
+    const canvas = await html2canvas(exportContainer, {
+      scale: 4,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      width: 1080,
+      height: exportContainer.scrollHeight,
+      imageTimeout: 3000,
+      removeContainer: true,
+    });
+    const safeName = song.name.replace(/[/\\?%*:|"<>]/g, '_');
+    const filename = `${safeName}_${acc.toFixed(2)}.png`;
+    await new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) { resolve(); return; }
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        resolve();
+      }, 'image/png');
+    });
+  } catch (err) {
+    console.error(err);
+    alert('导出失败：' + err.message);
+  } finally {
+    detailExportBtn.disabled = false;
+    detailExportBtn.textContent = originalText;
+  }
+}
+
+// 构建单曲导出 HTML
+function buildSoloExportHTML(d) {
+  // 进度条：复用 accToPos 映射
+  const accToPos = (accVal) => {
+    if (accVal <= 96) return 0;
+    if (accVal <= d.passPct) {
+      if (d.passPct <= 96) return 25;
+      return ((accVal - 96) / (d.passPct - 96)) * 25;
+    }
+    if (d.passPct >= 100) return 25;
+    return 25 + ((accVal - d.passPct) / (100 - d.passPct)) * 75;
+  };
+
+  const markers = [
+    { pos: accToPos(d.passPct),      value: d.passPct.toFixed(2) + '%',      label: '过段', cls: 'marker-pass',      labelCls: 'label-pass' },
+    { pos: accToPos(d.backlightPct), value: d.backlightPct.toFixed(2) + '%', label: '后光', cls: 'marker-backlight', labelCls: 'label-backlight' },
+    { pos: accToPos(d.breakPct),     value: d.breakPct.toFixed(2) + '%',     label: '击破', cls: 'marker-break',     labelCls: 'label-break' },
+    { pos: 100,                      value: '100.00%',                       label: '上限', cls: 'marker-max',       labelCls: 'label-max' }
+  ];
+
+  let markersHTML = '';
+  markers.forEach(m => {
+    const pos = Math.max(0, Math.min(100, m.pos));
+    markersHTML += `<div class="acc-marker ${m.cls}" style="left:${pos}%;"></div>`;
+    markersHTML += `<div class="acc-marker-label ${m.labelCls}" style="left:${pos}%;">${m.value}<span class="label-tag">${m.label}</span></div>`;
+  });
+
+  // 玩家箭头（不含 "你的 ACC" 标签）
+  const playerPos = Math.max(2, Math.min(98, accToPos(d.acc)));
+  const playerArrowHTML = `
+    <div class="acc-player-arrow" style="left:${playerPos}%;">
+      <div class="arrow-icon" style="border-bottom-color:${d.staccColor};"></div>
+      <div class="arrow-value" style="color:${d.staccColor};">${d.acc.toFixed(2)}%</div>
+    </div>`;
+
+  // 头像（可选）
+  const avatarHTML = d.avatarSrc
+    ? `<img class="solo-avatar" src="${d.avatarSrc}" alt="" />`
+    : '';
+
+  return `
+    <style>
+      .solo-wrapper {
+        width: 1080px;
+        background: #fff;
+        padding: 36px 112px 24px 56px;
+        font-family: 'Microsoft YaHei', '微软雅黑', 'Segoe UI', Roboto, sans-serif;
+        color: #1e293b;
+        box-sizing: border-box;
+      }
+      .solo-title {
+        font-size: 26px;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.35;
+        word-break: break-word;
+        margin-bottom: 18px;
+      }
+      .solo-divider {
+        height: 0;
+        border-top: 2px solid #e2e8f0;
+        margin: 20px 0;
+      }
+      .solo-body {
+        display: flex;
+        gap: 28px;
+        align-items: stretch;
+      }
+      .solo-art-wrap {
+        flex-shrink: 0;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f1f5f9;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      }
+      .solo-art-wrap img {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .solo-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+      }
+      .solo-player {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+      .solo-avatar {
+        width: 56px;
+        height: 56px;
+        border-radius: 10px;
+        object-fit: cover;
+        border: 2px solid #2563eb;
+        flex-shrink: 0;
+      }
+      .solo-player-name {
+        font-size: 20px;
+        font-weight: 700;
+        color: #0f172a;
+        word-break: break-word;
+      }
+      .solo-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        padding: 4px 0;
+        border-bottom: 1px dashed #eef2f6;
+      }
+      .solo-row:last-child { border-bottom: none; }
+      .solo-row .solo-label {
+        font-size: 13px;
+        color: #64748b;
+        flex-shrink: 0;
+      }
+      .solo-row .solo-value {
+        font-size: 15px;
+        font-weight: 700;
+        color: #1e293b;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .solo-row .solo-value.rating {
+        font-size: 22px;
+        color: #2563eb;
+      }
+      .solo-row .solo-value.rank {
+        color: #8b5cf6;
+      }
+      .solo-row .solo-value.const {
+        display: inline-block;
+        padding: 1px 10px;
+        border-radius: 6px;
+        font-size: 15px;
+      }
+      /* ACC 进度条 */
+      .solo-meter-wrap {
+        position: relative;
+        padding: 56px 0 36px;
+      }
+      .solo-meter-track {
+        position: relative;
+        height: 18px;
+        border-radius: 10px;
+        background: linear-gradient(90deg,
+          #ef4444 0%,
+          #f59e0b 20%,
+          #facc15 35%,
+          #3b82f6 55%,
+          #8b5cf6 75%,
+          #10b981 100%);
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);
+      }
+      .solo-meter-track .acc-marker {
+        position: absolute;
+        top: -6px;
+        bottom: -6px;
+        width: 4px;
+        border-radius: 2px;
+        transform: translateX(-50%);
+        box-shadow: 0 0 0 2px rgba(255,255,255,0.9);
+        z-index: 2;
+      }
+      .solo-meter-track .acc-marker.marker-pass      { background: #3b82f6; }
+      .solo-meter-track .acc-marker.marker-backlight { background: #8b5cf6; }
+      .solo-meter-track .acc-marker.marker-break     { background: #10b981; }
+      .solo-meter-track .acc-marker.marker-max       { background: #1e293b; }
+      .solo-meter-track .acc-marker-label {
+        position: absolute;
+        bottom: calc(100% + 10px);
+        transform: translateX(-50%);
+        font-size: 12px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        z-index: 3;
+      }
+      .solo-meter-track .acc-marker-label .label-tag {
+        display: block;
+        font-size: 10px;
+        font-weight: 500;
+        color: #94a3b8;
+        text-align: center;
+        margin-top: 1px;
+      }
+      .solo-meter-track .acc-marker-label.label-pass      { color: #3b82f6; }
+      .solo-meter-track .acc-marker-label.label-backlight { color: #8b5cf6; }
+      .solo-meter-track .acc-marker-label.label-break     { color: #10b981; }
+      .solo-meter-track .acc-marker-label.label-max       { color: #1e293b; }
+      .solo-meter-track .acc-player-arrow {
+        position: absolute;
+        top: calc(100% + 4px);
+        transform: translateX(-50%);
+        z-index: 4;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .solo-meter-track .acc-player-arrow .arrow-icon {
+        width: 0;
+        height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-bottom: 10px solid #94a3b8;
+      }
+      .solo-meter-track .acc-player-arrow .arrow-value {
+        font-size: 13px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        margin-top: 3px;
+        padding: 1px 6px;
+        background: rgba(255,255,255,0.9);
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+    </style>
+    <div class="solo-wrapper">
+      <div class="solo-title">${escapeHtml(d.song.name)}</div>
+      <div class="solo-divider"></div>
+
+      <div class="solo-body">
+        <div class="solo-art-wrap" style="width:${d.artW}px;height:${d.artH}px;">
+          <img src="${d.illustUrl}" alt="" />
+        </div>
+        <div class="solo-info">
+          <div class="solo-player">
+            ${avatarHTML}
+            <span class="solo-player-name">${escapeHtml(d.playerName)}</span>
+          </div>
+          <div class="solo-row">
+            <span class="solo-label">难度</span>
+            <span class="solo-value const" style="background:${d.cStyle.bg};color:${d.cStyle.color};">${d.song.constant}</span>
+          </div>
+          <div class="solo-row">
+            <span class="solo-label">原始 ACC</span>
+            <span class="solo-value">${d.acc.toFixed(2)}%</span>
+          </div>
+          <div class="solo-row">
+            <span class="solo-label">STACC</span>
+            <span class="solo-value" style="color:${d.staccColor};">${d.staccPct.toFixed(2)}%</span>
+          </div>
+          <div class="solo-row">
+            <span class="solo-label">单曲 Rating</span>
+            <span class="solo-value rating">${d.rating.toFixed(2)}</span>
+          </div>
+          <div class="solo-row">
+            <span class="solo-label">B50 排名</span>
+            <span class="solo-value rank">${escapeHtml(d.rankText)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="solo-divider"></div>
+
+      <div class="solo-meter-wrap">
+        <div class="solo-meter-track">
+          ${markersHTML}
+          ${playerArrowHTML}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // 返回按钮
@@ -1559,24 +2550,6 @@ segBtnReverse.addEventListener('click', segReverseDerive);
 segBtnForward.addEventListener('click', segForwardSynthesize);
 segBtnFillForward.addEventListener('click', segFillForward);
 segResetBtn.addEventListener('click', segResetAll);
-
-// 段位上传头像
-segUploadAvatarBtn.addEventListener('click', () => {
-  segAvatarFileInput.click();
-});
-segAvatarFileInput.addEventListener('change', function() {
-  if (this.files && this.files.length > 0) {
-    const file = this.files[0];
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      localAvatarDataURL = e.target.result;
-      saveLocalAvatar(localAvatarDataURL);
-      updatePlayerUI();
-    };
-    reader.readAsDataURL(file);
-  }
-  this.value = '';
-});
 
 // 段位图表
 function segPrepareChartData() {
@@ -2031,6 +3004,24 @@ playerPageSaveBtn.addEventListener('click', handlePlayerSave);
 playerPageIdInput.addEventListener('keydown', e => { if (e.key === 'Enter') handlePlayerSave(); });
 playerPageClearBtn.addEventListener('click', handleClearLocalData);
 
+// 玩家页：本地上传头像
+playerUploadAvatarBtn.addEventListener('click', () => {
+  playerAvatarFileInput.click();
+});
+playerAvatarFileInput.addEventListener('change', function() {
+  if (this.files && this.files.length > 0) {
+    const file = this.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      localAvatarDataURL = e.target.result;
+      saveLocalAvatar(localAvatarDataURL);
+      updatePlayerUI();
+    };
+    reader.readAsDataURL(file);
+  }
+  this.value = '';
+});
+
 async function handleClearLocalData() {
   const confirmed = confirm(
     '确定要清理本地数据吗？\n\n' +
@@ -2197,6 +3188,11 @@ async function init() {
   } else {
     switchPage('player');
   }
+
+  // 延迟 3 秒后启动原图后台预加载，避免与首屏缩略图抢带宽
+  setTimeout(() => {
+    preloadAllFullCovers().catch(e => console.warn('原图预加载异常:', e));
+  }, 3000);
 }
 
 init();

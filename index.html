@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.3.0</title>
+<title>DFC Rating计算 · v5.4.0</title>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
@@ -94,6 +94,7 @@
           <button class="btn btn-danger" id="queryStopBtn" style="display:none;">⏹ 停止</button>
           <button class="btn btn-success" id="calcBtn">⚡ 计算</button>
           <button class="btn btn-outline" id="exportScoresBtn">📤 导出成绩</button>
+          <button class="btn btn-outline" id="exportB50Btn">🏆 导出 B50</button>
           <button class="btn btn-outline" id="clearBtn">✕ 清空ACC</button>
         </div>
       </div>
@@ -175,11 +176,13 @@
   <section class="page" data-page="detail">
     <div class="detail-header">
       <button class="detail-back-btn" id="detailBackBtn">← 返回谱面预览</button>
+      <button class="btn btn-success" id="detailExportBtn">📷 导出图片</button>
     </div>
 
     <div class="detail-art-wrap">
       <div class="detail-art" id="detailArt">
         <img id="detailArtImg" style="display:none;" alt="" />
+        <img id="detailLoadingImg" style="display:none;" alt="加载中" />
         <div class="detail-art-ph" id="detailArtPh">加载中...</div>
       </div>
     </div>
@@ -240,7 +243,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.3.0</span>
+      <span class="badge">v5.4.0</span>
     </div>
 
     <div class="benchmark-section">
@@ -310,9 +313,7 @@
     <div class="segment-header">
       <h2>🎯 段位计算</h2>
       <div class="seg-header-actions">
-        <button class="btn btn-outline" id="segUploadAvatarBtn">📁 上传头像</button>
         <span class="seg-avatar-status" id="segAvatarStatus">未上传</span>
-        <input type="file" id="segAvatarFileInput" accept="image/*" style="display:none;" />
         <button class="btn btn-success" id="segExportBtn">📷 导出图片</button>
         <button class="btn btn-outline" id="segResetBtn">↺ 重置</button>
       </div>
@@ -426,11 +427,33 @@
           <label>Phira ID</label>
           <input type="number" id="playerPageIdInput" placeholder="输入 Phira ID" />
         </div>
+        <div class="form-row">
+          <label>头像状态</label>
+          <span class="form-value" id="playerPageAvatarStatus">—</span>
+        </div>
         <div class="form-actions">
           <button class="btn btn-primary" id="playerPageSaveBtn">确认修改</button>
           <button class="btn btn-outline" id="playerPageJumpBtn">🔗 跳转到 Phira 玩家页面</button>
-          <button class="btn btn-outline" id="playerPageClearBtn" style="color:#dc2626;border-color:#fca5a5;">🗑️ 清理本地数据</button>
         </div>
+
+        <div class="player-actions-card">
+          <div class="player-action-row">
+            <div class="player-action-info">
+              <div class="player-action-title">📁 本地头像上传</div>
+              <div class="player-action-desc">上传本地图片作为头像，用于段位计算导出图片</div>
+            </div>
+            <button class="btn btn-outline" id="playerUploadAvatarBtn">选择文件</button>
+            <input type="file" id="playerAvatarFileInput" accept="image/*" style="display:none;" />
+          </div>
+          <div class="player-action-row">
+            <div class="player-action-info">
+              <div class="player-action-title">🗑️ 清除本地缓存</div>
+              <div class="player-action-desc">清除所有本地缓存的 ACC 数据、头像、曲绘等（保留 Phira ID）</div>
+            </div>
+            <button class="btn btn-outline" id="playerPageClearBtn" style="color:#dc2626;border-color:#fca5a5;">清除</button>
+          </div>
+        </div>
+
         <div class="form-hint">
           ⚠️ 修改 Phira ID 后，主页面的所有 ACC 数据都会被清空，以防不同玩家的数据混在一起。玩家名字与头像将在确认后自动重新获取。
         </div>

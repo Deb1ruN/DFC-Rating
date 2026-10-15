@@ -1,6 +1,6 @@
 // rating-core.js
 const TOP_N = 50;
-const VERSION = '5.3.0';
+const VERSION = '5.4.0';
 const API_BASE = 'https://phira.5wyxi.com';
 const PHIRA_WEB_USER = 'https://phira.moe/user/';
 const KEY = {
@@ -17,6 +17,7 @@ const KEY = {
   chartMeta: 'dfc_rating_chart_meta_cache'
 };
 const NO_COVER_URL = 'no-cover.png';
+const LOADING_COVER_URL = 'loading-cover.png';
 function calcSTACC(acc, D) {
   if (D === undefined || D === null || isNaN(D)) return null;
   const denom = 1 - 0.9 * D;
