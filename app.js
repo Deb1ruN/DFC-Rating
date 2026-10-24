@@ -601,8 +601,8 @@ function makeArtBox(chartId) {
     // 无 chartId：直接显示占位图
     div.innerHTML = `<img src="${NO_COVER_URL}" alt="无曲绘" />`;
   } else {
-    // 有 chartId：先隐藏，等异步加载或失败时再决定
-    div.innerHTML = `<img style="display:none;" alt="" /><div class="art-ph">无图</div>`;
+    // 有 chartId：加入自动降级逻辑
+    div.innerHTML = `<img ${getImgFallbackAttr()} style="display:none;" alt="" /><div class="art-ph">无图</div>`;
   }
   return div;
 }
@@ -610,7 +610,7 @@ function artBoxHtml(chartId) {
   if (!chartId) {
     return `<div class="art-box"><img src="${NO_COVER_URL}" alt="无曲绘" /></div>`;
   }
-  return `<div class="art-box" data-chartid="${chartId}"><img style="display:none;" alt="" /><div class="art-ph">无图</div></div>`;
+  return `<div class="art-box" data-chartid="${chartId}"><img ${getImgFallbackAttr()} style="display:none;" alt="" /><div class="art-ph">无图</div></div>`;
 }
 // ============================================================
 // 11. 主页面表格渲染
@@ -1009,37 +1009,49 @@ exportB50Btn.addEventListener('click', exportB50Image);
 // 同源图片走 canvas 处理；跨域图片（Phira URL）返回 null，由调用方回退
 async function makeSquareThumb(url, size = 324) {
   return new Promise((resolve) => {
-    const img = new Image();
-    // 关键：允许跨域读取（GitHub Pages 默认返回 Access-Control-Allow-Origin: *）
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const sw = img.naturalWidth;
-        const sh = img.naturalHeight;
-        if (!sw || !sh) { resolve(null); return; }
+    const tryLoad = (currentUrl) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // 允许跨域读取
+      
+      img.onload = () => {
+        try {
+          const sw = img.naturalWidth;
+          const sh = img.naturalHeight;
+          if (!sw || !sh) { resolve(null); return; }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
 
-        // cover 逻辑：等比缩放到能填满正方形，居中裁剪
-        const scale = Math.max(size / sw, size / sh);
-        const dw = sw * scale;
-        const dh = sh * scale;
-        const dx = (size - dw) / 2;
-        const dy = (size - dh) / 2;
+          const scale = Math.max(size / sw, size / sh);
+          const dw = sw * scale;
+          const dh = sh * scale;
+          const dx = (size - dw) / 2;
+          const dy = (size - dh) / 2;
 
-        ctx.drawImage(img, dx, dy, dw, dh);
-        const dataUrl = canvas.toDataURL('image/png');
-        resolve(dataUrl);
-      } catch (e) {
-        console.warn('makeSquareThumb 处理失败:', e);
-        resolve(null);
-      }
+          ctx.drawImage(img, dx, dy, dw, dh);
+          const dataUrl = canvas.toDataURL('image/png');
+          resolve(dataUrl);
+        } catch (e) {
+          console.warn('makeSquareThumb 处理失败:', e);
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => {
+        // 如果是 jsDelivr 的链接加载失败（大图），自动回落到 GitHub
+        if (currentUrl.includes('jsdelivr.net')) {
+          tryLoad(currentUrl.replace(COVERS_BASE_URL, COVERS_FALLBACK_URL));
+        } else {
+          resolve(null); // 彻底失败
+        }
+      };
+      
+      img.src = currentUrl;
     };
-    img.onerror = () => resolve(null);
-    img.src = url;
+
+    tryLoad(url);
   });
 }
 
@@ -1217,7 +1229,7 @@ function buildB50ExportHTML(d) {
   const cardsHTML = d.items.map(item => `
     <div class="b50-card">
       <div class="b50-art">
-        <img src="${item.illustUrl}" alt="" />
+        <img src="${item.illustUrl}" ${getImgFallbackAttr()} alt="" />
       </div>
       <div class="b50-info">
         <div class="b50-name-row">
@@ -1763,12 +1775,18 @@ function openDetail(songIndex) {
       const tempImg = new Image();
       tempImg.onload = () => {
         if (detailCurrentSong !== song) return;
-        detailArtImg.src = url;
+        detailArtImg.src = tempImg.src; // 使用 tempImg.src 确保是最终成功的链接
         detailArtImg.style.display = 'block';
         detailLoadingImg.style.display = 'none';
       };
       tempImg.onerror = () => {
         if (detailCurrentSong !== song) return;
+        // 如果 jsDelivr 失败，自动尝试 GitHub
+        if (tempImg.src.includes('jsdelivr.net')) {
+          tempImg.src = url.replace(COVERS_BASE_URL, COVERS_FALLBACK_URL);
+          return;
+        }
+        // 彻底失败则显示占位图
         detailArtImg.src = NO_COVER_URL;
         detailArtImg.style.display = 'block';
         detailLoadingImg.style.display = 'none';
@@ -2248,7 +2266,7 @@ function buildSoloExportHTML(d) {
 
       <div class="solo-body">
         <div class="solo-art-wrap" style="width:${d.artW}px;height:${d.artH}px;">
-          <img src="${d.illustUrl}" alt="" />
+          <img src="${d.illustUrl}" ${getImgFallbackAttr()} alt="" />
         </div>
         <div class="solo-info">
           <div class="solo-player">
