@@ -165,7 +165,7 @@ let localCoverManifest = null;
 // 把这个 Promise 挂到变量上，让 getIllustration 能 await 到它
 const localCoverManifestReady = (async function loadLocalCoverManifest() {
   try {
-    const resp = await fetch(`${COVERS_BASE_URL}/manifest.json`);
+    const resp = await fetch(`${THUMB_BASE_URL}/manifest.json`);
     if (resp.ok) {
       localCoverManifest = await resp.json();
       console.log(`📷 已加载本地曲绘 manifest，共 ${Object.keys(localCoverManifest).length} 张`);
@@ -200,6 +200,9 @@ function getSettingConstStyle() {
   return localStorage.getItem(KEY.settingsConstStyle) || 'left';
 }
 
+function getSettingUseFullCover() {
+  return localStorage.getItem(KEY.settingsUseFullCover) || 'off';
+}
 function applyGuideHintsSetting(val) {
   if (val === 'off') document.body.classList.add('hide-guide-hints');
   else document.body.classList.remove('hide-guide-hints');
@@ -209,6 +212,10 @@ function applyConstStyleSetting(val) {
 }
 
 function updateSettingButtons() {
+  const ufc = getSettingUseFullCover();
+  document.querySelectorAll('.setting-toggle-btn[data-setting="use-full-cover"]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === ufc);
+  });
   const gh = getSettingGuideHints();
   const cs = getSettingConstStyle();
   document.querySelectorAll('.setting-toggle-btn[data-setting="guide-hints"]').forEach(btn => {
@@ -236,6 +243,8 @@ function bindSettingButtons() {
       } else if (setting === 'const-style') {
         localStorage.setItem(KEY.settingsConstStyle, value);
         applyConstStyleSetting(value);
+      } else if (setting === 'use-full-cover') {
+        localStorage.setItem(KEY.settingsUseFullCover, value);
       }
       updateSettingButtons();
     });
@@ -373,39 +382,27 @@ songTableBodyWrap.addEventListener('scroll', () => {
 async function getIllustration(chartId, size = 'thumb') {
   if (!chartId) return null;
   const key = String(chartId);
-
-  // 等 manifest 就绪（无论成功或失败，都会 resolve）
   await localCoverManifestReady;
 
-  // 本地图片优先（路径前缀来自 COVERS_BASE_URL）
   if (localCoverManifest && localCoverManifest[key]) {
     const entry = localCoverManifest[key];
-    // 新格式：{ full, thumb }
+    let filename = '';
     if (typeof entry === 'object' && entry !== null) {
-      const filename = entry[size] || entry.thumb || entry.full;
-      if (filename) {
-        return `${COVERS_BASE_URL}/${size === 'full' ? 'full' : 'thumb'}/${filename}`;
+      filename = entry[size] || entry.thumb || entry.full;
+    } else if (typeof entry === 'string') {
+      filename = entry;
+    }
+
+    if (filename) {
+      if (size === 'full') {
+        return `${FULL_BASE_URL}/full/${entry.full}`;
+      } else {
+        return `${THUMB_BASE_URL}/thumb/${entry.thumb || filename}`;
       }
     }
-    // 旧格式兼容：纯字符串
-    if (typeof entry === 'string') {
-      return `${COVERS_BASE_URL}/${entry}`;
-    }
   }
-
-  // 本地无图时才请求 Phira API（不再缓存 URL）
-  if (illustPending.has(key)) return illustPending.get(key);
-
-  const p = runIllustTask(() =>
-    fetch(`${API_BASE}/chart/${chartId}`)
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(d => d.illustration || null)
-  )
-    .then(url => { illustPending.delete(key); return url; })
-    .catch(() => { illustPending.delete(key); return null; });
-
-  illustPending.set(key, p);
-  return p;
+  // 回退到 Phira API（极少触发）
+  return null;
 }
 
 function getChartMeta(chartId) {
@@ -564,7 +561,7 @@ async function preloadAllFullCovers() {
     const entry = localCoverManifest[key];
     if (!entry || typeof entry !== 'object' || !entry.full) continue;
 
-    const url = `${COVERS_BASE_URL}/full/${entry.full}`;
+    const url = `${FULL_BASE_URL}/full/${entry.full}`;
 
     // 走统一队列，与缩略图共享并发限制；查询时队列冻结会自动推迟
     await new Promise(resolve => {
@@ -602,7 +599,7 @@ function makeArtBox(chartId) {
     div.innerHTML = `<img src="${NO_COVER_URL}" alt="无曲绘" />`;
   } else {
     // 有 chartId：加入自动降级逻辑
-    div.innerHTML = `<img ${getImgFallbackAttr()} style="display:none;" alt="" /><div class="art-ph">无图</div>`;
+    div.innerHTML = `<img style="display:none;" alt="" /><div class="art-ph">无图</div>`;
   }
   return div;
 }
@@ -610,7 +607,7 @@ function artBoxHtml(chartId) {
   if (!chartId) {
     return `<div class="art-box"><img src="${NO_COVER_URL}" alt="无曲绘" /></div>`;
   }
-  return `<div class="art-box" data-chartid="${chartId}"><img ${getImgFallbackAttr()} style="display:none;" alt="" /><div class="art-ph">无图</div></div>`;
+  return `<div class="art-box" data-chartid="${chartId}"><img style="display:none;" alt="" /><div class="art-ph">无图</div></div>`;
 }
 // ============================================================
 // 11. 主页面表格渲染
@@ -1040,9 +1037,9 @@ async function makeSquareThumb(url, size = 324) {
       };
 
       img.onerror = () => {
-        // 如果是 jsDelivr 的链接加载失败（大图），自动回落到 GitHub
+        // 如果是 jsDelivr 的链接加载失败，自动回落到 GitHub
         if (currentUrl.includes('jsdelivr.net')) {
-          tryLoad(currentUrl.replace(COVERS_BASE_URL, COVERS_FALLBACK_URL));
+          tryLoad(currentUrl.replace(FULL_BASE_URL, FULL_FALLBACK_BASE_URL));
         } else {
           resolve(null); // 彻底失败
         }
@@ -1229,7 +1226,7 @@ function buildB50ExportHTML(d) {
   const cardsHTML = d.items.map(item => `
     <div class="b50-card">
       <div class="b50-art">
-        <img src="${item.illustUrl}" ${getImgFallbackAttr()} alt="" />
+        <img src="${item.illustUrl}" alt="" />
       </div>
       <div class="b50-info">
         <div class="b50-name-row">
@@ -1749,7 +1746,9 @@ function openDetail(songIndex) {
   detailBacklight.textContent = backlightAccPct.toFixed(2) + '%';
   detailBreak.textContent = breakAccPct.toFixed(2) + '%';
 
-  // 曲绘：无 chartId 直接用占位图；有 chartId 先显示 loading 图，加载完成再切换
+  // 曲绘：立即显示 loading 图
+  detailLoadingImg.src = LOADING_COVER_URL;
+  detailLoadingImg.style.display = 'block';
   detailArtImg.style.display = 'none';
   detailArtPh.style.display = 'none';
 
@@ -1758,32 +1757,32 @@ function openDetail(songIndex) {
     detailArtImg.src = NO_COVER_URL;
     detailArtImg.style.display = 'block';
   } else {
-    // 先显示 loading 图
-    detailLoadingImg.src = LOADING_COVER_URL;
-    detailLoadingImg.style.display = 'block';
+    // 判断是否使用高清图
+    const useFull = getSettingUseFullCover() === 'on';
+    const targetSize = useFull ? 'full' : 'thumb';
 
-    getIllustration(song.chartId, 'full').then(url => {
+    getIllustration(song.chartId, targetSize).then(url => {
       if (detailCurrentSong !== song) return;
       if (!url) {
-        // 无图：直接换成占位图
         detailLoadingImg.style.display = 'none';
         detailArtImg.src = NO_COVER_URL;
         detailArtImg.style.display = 'block';
         return;
       }
-      // 用 Image 对象预检查，等真正加载完再切换，避免闪白
+
       const tempImg = new Image();
       tempImg.onload = () => {
         if (detailCurrentSong !== song) return;
-        detailArtImg.src = tempImg.src; // 使用 tempImg.src 确保是最终成功的链接
+        // 使用 tempImg.src 确保是最终加载成功的链接
+        detailArtImg.src = tempImg.src;
         detailArtImg.style.display = 'block';
         detailLoadingImg.style.display = 'none';
       };
       tempImg.onerror = () => {
         if (detailCurrentSong !== song) return;
-        // 如果 jsDelivr 失败，自动尝试 GitHub
-        if (tempImg.src.includes('jsdelivr.net')) {
-          tempImg.src = url.replace(COVERS_BASE_URL, COVERS_FALLBACK_URL);
+        // 如果是 jsDelivr 的高清原图加载失败（大图被拒绝），自动尝试 GitHub 备用
+        if (targetSize === 'full' && tempImg.src.includes('jsdelivr.net')) {
+          tempImg.src = tempImg.src.replace(FULL_BASE_URL, FULL_FALLBACK_BASE_URL);
           return;
         }
         // 彻底失败则显示占位图
@@ -1926,7 +1925,8 @@ async function detailExportImage() {
   const rankText = idxInB50 >= 0 ? ('#' + (idxInB50 + 1)) : '未进入 B50';
 
   // 曲绘 URL（本地原图）
-  const illustUrl = await getIllustration(song.chartId, 'full');
+const useFull = getSettingUseFullCover() === 'on';
+const illustUrl = await getIllustration(song.chartId, useFull ? 'full' : 'thumb');
   if (!illustUrl) {
     alert('该谱面无曲绘，无法导出');
     return;
@@ -2266,7 +2266,7 @@ function buildSoloExportHTML(d) {
 
       <div class="solo-body">
         <div class="solo-art-wrap" style="width:${d.artW}px;height:${d.artH}px;">
-          <img src="${d.illustUrl}" ${getImgFallbackAttr()} alt="" />
+          <img src="${d.illustUrl}" alt="" />
         </div>
         <div class="solo-info">
           <div class="solo-player">

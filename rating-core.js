@@ -16,28 +16,21 @@ const KEY = {
   illust: 'dfc_rating_illust_cache',
   chartMeta: 'dfc_rating_chart_meta_cache',
   settingsGuideHints: 'dfc_rating_setting_guide_hints',
+  settingsUseFullCover: 'dfc_rating_setting_use_full_cover',
   settingsConstStyle: 'dfc_rating_setting_const_style'
 };
 const NO_COVER_URL = 'no-cover.png';
 const LOADING_COVER_URL = 'loading-cover.png';
 
-// ===== 曲绘 CDN 配置 =====
+// ===== 曲绘配置 =====
 const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
 
-// 你的 GitHub 原始地址
-const GITHUB_BASE_URL = 'https://Deb1ruN.github.io/dfc-rating-covers';
-// jsDelivr 加速地址
-const JSDELIVR_BASE_URL = 'https://cdn.jsdelivr.net/gh/Deb1ruN/dfc-rating-covers@main';
+// 缩略图：直接放在主网站，同源，速度极快
+const THUMB_BASE_URL = './images';
 
-// 优先使用 jsDelivr，本地环境使用本地
-const COVERS_BASE_URL = IS_LOCAL ? './images' : JSDELIVR_BASE_URL;
-const COVERS_FALLBACK_URL = IS_LOCAL ? './images' : GITHUB_BASE_URL;
-
-// 供 img 标签使用的 onerror 自动降级属性
-function getImgFallbackAttr() {
-  if (IS_LOCAL) return '';
-  return `onerror="this.onerror=null; this.src=this.src.replace(COVERS_BASE_URL, COVERS_FALLBACK_URL);"`;
-}
+// 原图：放在 GitHub 仓库（请替换为你的真实用户名）
+const FULL_BASE_URL = 'https://cdn.jsdelivr.net/gh/Deb1ruN/dfc-rating-covers@main';
+const FULL_FALLBACK_BASE_URL = 'https://Deb1ruN.github.io/dfc-rating-covers';
 function calcSTACC(acc, D) {
   if (D === undefined || D === null || isNaN(D)) return null;
   const denom = 1 - 0.9 * D;
