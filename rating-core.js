@@ -14,10 +14,18 @@ const KEY = {
   truncate: 'dfc_rating_truncate_enabled',
   maxRank: 'dfc_rating_max_rank',
   illust: 'dfc_rating_illust_cache',
-  chartMeta: 'dfc_rating_chart_meta_cache'
+  chartMeta: 'dfc_rating_chart_meta_cache',
+  settingsGuideHints: 'dfc_rating_setting_guide_hints',
+  settingsConstStyle: 'dfc_rating_setting_const_style'
 };
 const NO_COVER_URL = 'no-cover.png';
 const LOADING_COVER_URL = 'loading-cover.png';
+
+// 曲绘 CDN 基础地址（GitHub Pages 托管）
+// 本地测试时可临时改为 './images'，生产环境用 GitHub Pages
+const COVERS_BASE_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? './images'
+  : 'https://Deb1ruN.github.io/dfc-rating-covers';
 function calcSTACC(acc, D) {
   if (D === undefined || D === null || isNaN(D)) return null;
   const denom = 1 - 0.9 * D;

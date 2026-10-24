@@ -62,6 +62,7 @@ const previewList = $('previewList');
 const previewCount = $('previewCount');
 const previewSearchInput = $('previewSearchInput');
 const previewSearchClear = $('previewSearchClear');
+const previewSortSelect = $('previewSortSelect');
 
 // 详情页 DOM
 const detailBackBtn = $('detailBackBtn');
@@ -164,7 +165,7 @@ let localCoverManifest = null;
 // 把这个 Promise 挂到变量上，让 getIllustration 能 await 到它
 const localCoverManifestReady = (async function loadLocalCoverManifest() {
   try {
-    const resp = await fetch('images/manifest.json');
+    const resp = await fetch(`${COVERS_BASE_URL}/manifest.json`);
     if (resp.ok) {
       localCoverManifest = await resp.json();
       console.log(`📷 已加载本地曲绘 manifest，共 ${Object.keys(localCoverManifest).length} 张`);
@@ -182,11 +183,64 @@ let segSelectedPreset = null;
 let segIsCustom = false;
 
 let previewSearchQuery = '';
+let previewSortMode = 'rating';   // 'rating' | 'constant'
 
 // 详情页当前谱面
 let detailCurrentSong = null;
 // 进入详情前预览页的滚动位置
 let previewScrollBeforeDetail = 0;
+
+// ============================================================
+// 6.5 显示设置
+// ============================================================
+function getSettingGuideHints() {
+  return localStorage.getItem(KEY.settingsGuideHints) || 'on';
+}
+function getSettingConstStyle() {
+  return localStorage.getItem(KEY.settingsConstStyle) || 'left';
+}
+
+function applyGuideHintsSetting(val) {
+  if (val === 'off') document.body.classList.add('hide-guide-hints');
+  else document.body.classList.remove('hide-guide-hints');
+}
+function applyConstStyleSetting(val) {
+  document.body.setAttribute('data-const-style', val || 'left');
+}
+
+function updateSettingButtons() {
+  const gh = getSettingGuideHints();
+  const cs = getSettingConstStyle();
+  document.querySelectorAll('.setting-toggle-btn[data-setting="guide-hints"]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === gh);
+  });
+  document.querySelectorAll('.setting-toggle-btn[data-setting="const-style"]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === cs);
+  });
+}
+
+function loadSettings() {
+  applyGuideHintsSetting(getSettingGuideHints());
+  applyConstStyleSetting(getSettingConstStyle());
+  updateSettingButtons();
+}
+
+function bindSettingButtons() {
+  document.querySelectorAll('.setting-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const setting = this.dataset.setting;
+      const value = this.dataset.value;
+      if (setting === 'guide-hints') {
+        localStorage.setItem(KEY.settingsGuideHints, value);
+        applyGuideHintsSetting(value);
+      } else if (setting === 'const-style') {
+        localStorage.setItem(KEY.settingsConstStyle, value);
+        applyConstStyleSetting(value);
+      }
+      updateSettingButtons();
+    });
+  });
+}
 
 // ============================================================
 // 7. 工具函数
@@ -323,19 +377,19 @@ async function getIllustration(chartId, size = 'thumb') {
   // 等 manifest 就绪（无论成功或失败，都会 resolve）
   await localCoverManifestReady;
 
-  // 本地图片优先
+  // 本地图片优先（路径前缀来自 COVERS_BASE_URL）
   if (localCoverManifest && localCoverManifest[key]) {
     const entry = localCoverManifest[key];
     // 新格式：{ full, thumb }
     if (typeof entry === 'object' && entry !== null) {
       const filename = entry[size] || entry.thumb || entry.full;
       if (filename) {
-        return `images/${size === 'full' ? 'full' : 'thumb'}/${filename}`;
+        return `${COVERS_BASE_URL}/${size === 'full' ? 'full' : 'thumb'}/${filename}`;
       }
     }
     // 旧格式兼容：纯字符串
     if (typeof entry === 'string') {
-      return `images/${entry}`;
+      return `${COVERS_BASE_URL}/${entry}`;
     }
   }
 
@@ -510,7 +564,7 @@ async function preloadAllFullCovers() {
     const entry = localCoverManifest[key];
     if (!entry || typeof entry !== 'object' || !entry.full) continue;
 
-    const url = `images/full/${entry.full}`;
+    const url = `${COVERS_BASE_URL}/full/${entry.full}`;
 
     // 走统一队列，与缩略图共享并发限制；查询时队列冻结会自动推迟
     await new Promise(resolve => {
@@ -954,11 +1008,10 @@ exportB50Btn.addEventListener('click', exportB50Image);
 // 把任意比例图片裁剪成 1:1 正方形 DataURL
 // 同源图片走 canvas 处理；跨域图片（Phira URL）返回 null，由调用方回退
 async function makeSquareThumb(url, size = 324) {
-  // 跨域图片（http/https 开头且不是本地相对路径）跳过
-  if (/^https?:\/\//i.test(url)) return null;
-
   return new Promise((resolve) => {
     const img = new Image();
+    // 关键：允许跨域读取（GitHub Pages 默认返回 Access-Control-Allow-Origin: *）
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
         const sw = img.naturalWidth;
@@ -1014,6 +1067,12 @@ async function exportB50Image() {
   // 头像（仅本地 DataURL）
   const avatarSrc = localAvatarDataURL || '';
 
+  // 防止与自动查询冲突（两者共用同一条进度条）
+  if (queryRunning) {
+    alert('请先等待当前的自动查询完成，再进行导出。');
+    return;
+  }
+
   // 按钮进入状态
   exportB50Btn.disabled = true;
   const origText = exportB50Btn.textContent;
@@ -1022,6 +1081,17 @@ async function exportB50Image() {
   // 保存 exportContainer 的原有样式
   const prevWidth = exportContainer.style.width;
   const prevPadding = exportContainer.style.padding;
+
+  // ===== 显示主页面进度条，用于展示导出进度 =====
+  const totalItems = top50.length;
+  const updateProgress = (done, text) => {
+    progressBar.style.width = (done / totalItems * 100) + '%';
+    queryProgressText.textContent = text;
+  };
+  progressBarWrap.classList.add('active');
+  queryTimer.classList.remove('active', 'running');   // 隐藏计时器
+  queryCurrentChart.textContent = '';
+  updateProgress(0, `准备导出 B50 · 0/${totalItems}`);
 
   try {
     // 预加载所有曲绘的 thumb 版本，构建 items
@@ -1049,7 +1119,13 @@ async function exportB50Image() {
         constStyle: getConstBadgeStyle(r.constant),
         staccColor: getStaccColor((r.stacc || 0) / 100)
       });
+
+      // 更新进度
+      updateProgress(i + 1, `处理曲绘 ${i + 1}/${totalItems}`);
     }
+
+    // 图片处理完毕，进入渲染阶段
+    queryProgressText.textContent = `正在合成图片（${totalItems} 首）...`;
 
     // 构建 HTML
     const html = buildB50ExportHTML({
@@ -1091,7 +1167,7 @@ async function exportB50Image() {
     });
 
     const canvas = await html2canvas(exportContainer, {
-      scale: 3,
+      scale: 2,
       useCORS: true,
       backgroundColor: '#ffffff',
       logging: false,
@@ -1125,6 +1201,10 @@ async function exportB50Image() {
     // 恢复容器原始样式
     exportContainer.style.width = prevWidth;
     exportContainer.style.padding = prevPadding;
+    // 隐藏进度条
+    progressBarWrap.classList.remove('active');
+    progressBar.style.width = '0%';
+    queryProgressText.textContent = '就绪';
   }
 }
 
@@ -1445,49 +1525,86 @@ function renderPreview() {
     return;
   }
 
-  const sorted = [...results].sort((a, b) => b.rating - a.rating);
-  let b50 = sorted.slice(0, 50);
-  let rest = sorted.slice(50);
-  const playedIds = new Set(results.map(r => r.id));
-  let untouched = SONG_DATA.filter(s => !playedIds.has(s.internalId)).sort((a, b) => b.constant - a.constant);
-
   const q = previewSearchQuery;
-  if (q) {
-    b50 = b50.filter(r => previewMatches(r, q));
-    rest = rest.filter(r => previewMatches(r, q));
-    untouched = untouched.filter(s => previewMatches(s, q));
-  }
-
-  const restList = [
-    ...rest.map(r => ({ type: 'result', data: r })),
-    ...untouched.map(s => ({ type: 'untouched', data: s }))
-  ].sort((a, b) => b.data.constant - a.data.constant);
-
-  const totalShown = b50.length + restList.length;
-  if (q) {
-    previewCount.textContent = `搜索结果 ${totalShown} 首`;
-  } else {
-    previewCount.textContent = `共 ${b50.length + restList.length} 首（B50: ${b50.length}）`;
-  }
-
-  if (totalShown === 0) {
-    previewList.innerHTML = `<div class="preview-empty">未找到匹配「${escapeHtml(q)}」的谱面</div>`;
-    return;
-  }
-
   let html = '';
-  b50.forEach((r, i) => { html += renderPreviewItem(r, i + 1, 'result'); });
-  if (restList.length > 0) {
-    html += `<div class="preview-divider"><span>以下为剩余谱面（按定数降序）</span></div>`;
-    restList.forEach(item => {
+  let totalShown = 0;
+
+  if (previewSortMode === 'constant') {
+    // ===== 按难度排序：全部谱面，不分割 =====
+    const playedMap = new Map(results.map(r => [r.id, r]));
+    let allItems = SONG_DATA.map(song => {
+      const r = playedMap.get(song.internalId);
+      return r ? { type: 'result', data: r } : { type: 'untouched', data: song };
+    });
+
+    if (q) allItems = allItems.filter(item => previewMatches(item.data, q));
+
+    allItems.sort((a, b) => {
+      const diff = b.data.constant - a.data.constant;
+      if (Math.abs(diff) > 0.001) return diff;
+      // 定数相同：已游玩的优先
+      if (a.type !== b.type) return a.type === 'result' ? -1 : 1;
+      return String(a.data.name).localeCompare(String(b.data.name));
+    });
+
+    totalShown = allItems.length;
+
+    if (totalShown === 0) {
+      previewList.innerHTML = `<div class="preview-empty">未找到匹配「${escapeHtml(q)}」的谱面</div>`;
+      previewCount.textContent = '—';
+      return;
+    }
+
+    allItems.forEach(item => {
       html += renderPreviewItem(item.data, null, item.type);
     });
+
+    previewCount.textContent = q
+      ? `搜索结果 ${totalShown} 首（按难度）`
+      : `共 ${totalShown} 首（按难度）`;
+  } else {
+    // ===== 按单曲 Rating 排序：B50 + 剩余 =====
+    const sorted = [...results].sort((a, b) => b.rating - a.rating);
+    let b50 = sorted.slice(0, 50);
+    let rest = sorted.slice(50);
+    const playedIds = new Set(results.map(r => r.id));
+    let untouched = SONG_DATA.filter(s => !playedIds.has(s.internalId)).sort((a, b) => b.constant - a.constant);
+
+    if (q) {
+      b50 = b50.filter(r => previewMatches(r, q));
+      rest = rest.filter(r => previewMatches(r, q));
+      untouched = untouched.filter(s => previewMatches(s, q));
+    }
+
+    const restList = [
+      ...rest.map(r => ({ type: 'result', data: r })),
+      ...untouched.map(s => ({ type: 'untouched', data: s }))
+    ].sort((a, b) => b.data.constant - a.data.constant);
+
+    totalShown = b50.length + restList.length;
+
+    if (totalShown === 0) {
+      previewList.innerHTML = `<div class="preview-empty">未找到匹配「${escapeHtml(q)}」的谱面</div>`;
+      previewCount.textContent = '—';
+      return;
+    }
+
+    b50.forEach((r, i) => { html += renderPreviewItem(r, i + 1, 'result'); });
+    if (restList.length > 0) {
+      html += `<div class="preview-divider"><span>以下为剩余谱面（按定数降序）</span></div>`;
+      restList.forEach(item => {
+        html += renderPreviewItem(item.data, null, item.type);
+      });
+    }
+
+    previewCount.textContent = q
+      ? `搜索结果 ${totalShown} 首`
+      : `共 ${totalShown} 首（B50: ${b50.length}）`;
   }
 
   previewList.innerHTML = html;
   previewList.querySelectorAll('.art-box').forEach(el => illustObserver.observe(el));
 
-  // 绑定点击事件（使用事件委托更稳）
   previewList.querySelectorAll('.preview-item').forEach(item => {
     item.addEventListener('click', function() {
       const idx = parseInt(this.dataset.index, 10);
@@ -1501,12 +1618,12 @@ function renderPreviewItem(data, rank, type) {
   const name = data.name || '';
   const constant = data.constant;
   const rankPrefix = rank ? '#' + rank + ' ' : '';
-  // 获取在 SONG_DATA 中的索引，用于详情页
   const songIndex = SONG_DATA.findIndex(s => s.internalId === (data.internalId || (name + '|' + constant + '|' + (chartId || ''))));
+  const constColor = getConstColor(constant);
 
   if (type === 'untouched') {
     return `
-      <div class="preview-item" data-index="${songIndex}">
+      <div class="preview-item" data-index="${songIndex}" style="--const-color:${constColor};">
         ${artBoxHtml(chartId)}
         <div class="preview-info">
           <div class="preview-name" title="${escapeHtml(name)}">${rankPrefix}${escapeHtml(name)}</div>
@@ -1523,7 +1640,7 @@ function renderPreviewItem(data, rank, type) {
   const accDisplay = (data.acc !== undefined && !isNaN(data.acc)) ? data.acc.toFixed(2) + '%' : '—';
 
   return `
-    <div class="preview-item" data-index="${songIndex}">
+    <div class="preview-item" data-index="${songIndex}" style="--const-color:${constColor};">
       ${artBoxHtml(chartId)}
       <div class="preview-info">
         <div class="preview-name" title="${escapeHtml(name)}">${rankPrefix}${escapeHtml(name)}</div>
@@ -1536,6 +1653,11 @@ function renderPreviewItem(data, rank, type) {
       </div>
     </div>`;
 }
+
+previewSortSelect.addEventListener('change', function() {
+  previewSortMode = this.value === 'constant' ? 'constant' : 'rating';
+  renderPreview();
+});
 
 previewSearchInput.addEventListener('input', function() {
   previewSearchQuery = this.value;
@@ -1863,7 +1985,7 @@ async function detailExportImage() {
     });
 
     const canvas = await html2canvas(exportContainer, {
-      scale: 4,
+      scale: 2,
       useCORS: true,
       backgroundColor: '#ffffff',
       logging: false,
@@ -3085,12 +3207,17 @@ async function handleClearLocalData() {
     }
   }
 
-  // 7) 刷新 UI
+  // 7) 重置显示设置为默认
+  applyGuideHintsSetting('on');
+  applyConstStyleSetting('left');
+  updateSettingButtons();
+
+  // 8) 刷新 UI
   updatePlayerUI();
   updateDisplay();
   if (segSelectedPreset) segShowInfo(segSelectedPreset);
 
-  // 8) 返回主页面
+  // 9) 返回主页面
   switchPage('main');
 }
 playerPageJumpBtn.addEventListener('click', () => {
@@ -3145,6 +3272,10 @@ async function handlePlayerSave() {
 // 21. 初始化
 // ============================================================
 async function init() {
+  // 先应用显示设置（影响页面渲染，越早越好）
+  loadSettings();
+  bindSettingButtons();
+
   const savedConc = parseInt(localStorage.getItem(KEY.concurrency) || '', 10);
   if (!isNaN(savedConc) && savedConc >= 8 && savedConc <= 16) {
     concurrencySlider.value = savedConc;
