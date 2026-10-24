@@ -163,21 +163,21 @@
       <span>提示：点击任意谱面项可进入谱面详情页，查看曲绘、谱师、曲师以及 ACC 进度条。</span>
     </div>
     <div class="preview-toolbar">
-<div class="preview-toolbar">
-  <div class="preview-search-bar">
-    <span class="search-icon">🔍</span>
-    <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
-    <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
-  </div>
-  <div class="preview-sort-wrap">
-    <label for="previewSortSelect" class="sort-label">排序</label>
-    <select id="previewSortSelect">
-      <option value="rating">单曲 Rating</option>
-      <option value="constant">难度</option>
-    </select>
-  </div>
-</div>
-    <div class="preview-list" id="previewList">
+      <div class="preview-search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
+        <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
+      </div>
+      <div class="preview-sort-wrap">
+        <label for="previewSortSelect" class="sort-label">排序</label>
+        <select id="previewSortSelect">
+          <option value="rating">单曲 Rating</option>
+          <option value="constant">难度</option>
+        </select>
+      </div>
+    </div>
+    <!-- 确保列表在工具栏的下方，且没有被嵌套进工具栏里 -->
+    <div class="preview-list" id="previewList"></div>
       <div style="padding:40px;text-align:center;color:#94a3b8;">请先计算成绩</div>
     </div>
   </section>
