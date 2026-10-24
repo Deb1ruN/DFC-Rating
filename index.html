@@ -162,11 +162,21 @@
       <span class="hint-icon">💡</span>
       <span>提示：点击任意谱面项可进入谱面详情页，查看曲绘、谱师、曲师以及 ACC 进度条。</span>
     </div>
-    <div class="preview-search-bar">
-      <span class="search-icon">🔍</span>
-      <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
-      <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
-    </div>
+    <div class="preview-toolbar">
+<div class="preview-toolbar">
+  <div class="preview-search-bar">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
+    <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
+  </div>
+  <div class="preview-sort-wrap">
+    <label for="previewSortSelect" class="sort-label">排序</label>
+    <select id="previewSortSelect">
+      <option value="rating">单曲 Rating</option>
+      <option value="constant">难度</option>
+    </select>
+  </div>
+</div>
     <div class="preview-list" id="previewList">
       <div style="padding:40px;text-align:center;color:#94a3b8;">请先计算成绩</div>
     </div>
@@ -434,6 +444,33 @@
         <div class="form-actions">
           <button class="btn btn-primary" id="playerPageSaveBtn">确认修改</button>
           <button class="btn btn-outline" id="playerPageJumpBtn">🔗 跳转到 Phira 玩家页面</button>
+        </div>
+
+        <div class="player-settings-card">
+          <div class="player-settings-title">⚙️ 显示设置</div>
+
+          <div class="player-setting-row">
+            <div class="player-setting-info">
+              <div class="player-setting-name">顶部提示框</div>
+              <div class="player-setting-desc">控制各页面顶部引导提示是否显示</div>
+            </div>
+            <div class="setting-toggle">
+              <button class="setting-toggle-btn" data-setting="guide-hints" data-value="on">启用</button>
+              <button class="setting-toggle-btn" data-setting="guide-hints" data-value="off">关闭</button>
+            </div>
+          </div>
+
+          <div class="player-setting-row">
+            <div class="player-setting-info">
+              <div class="player-setting-name">难度色条样式</div>
+              <div class="player-setting-desc">谱面预览页卡片的难度标识方式</div>
+            </div>
+            <div class="setting-toggle">
+              <button class="setting-toggle-btn" data-setting="const-style" data-value="left">左侧</button>
+              <button class="setting-toggle-btn" data-setting="const-style" data-value="around">四边</button>
+              <button class="setting-toggle-btn" data-setting="const-style" data-value="none">不显示</button>
+            </div>
+          </div>
         </div>
 
         <div class="player-actions-card">

@@ -46,3 +46,18 @@ function getConstBadgeStyle(c) {
 function getDisplayAvatar() {
   return localAvatarDataURL || playerAvatar || '';
 }
+// 难度 → 颜色（用于预览页左侧边线）
+function getConstColor(c) {
+  if (c >= 18) return '#ef4444';   // 红
+  if (c >= 17) return '#f97316';   // 橙
+  if (c >= 16) return '#eab308';   // 黄
+  if (c >= 15) return '#3b82f6';   // 蓝
+  if (c >= 14) return '#a855f7';   // 紫
+  if (c >= 13) return '#10b981';   // 绿
+  if (c >= 12) return '#14b8a6';   // 青绿
+  if (c >= 11) return '#0ea5e9';   // 天蓝
+  if (c >= 10) return '#ec4899';   // 粉
+  if (c >= 9) return '#8b5cf6';    // 紫罗兰
+  if (c >= 8) return '#64748b';    // 灰蓝
+  return '#94a3b8';                // 浅灰
+}

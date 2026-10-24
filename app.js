@@ -1654,10 +1654,12 @@ function renderPreviewItem(data, rank, type) {
     </div>`;
 }
 
-previewSortSelect.addEventListener('change', function() {
-  previewSortMode = this.value === 'constant' ? 'constant' : 'rating';
-  renderPreview();
-});
+if (previewSortSelect) {
+  previewSortSelect.addEventListener('change', function() {
+    previewSortMode = this.value === 'constant' ? 'constant' : 'rating';
+    renderPreview();
+  });
+}
 
 previewSearchInput.addEventListener('input', function() {
   previewSearchQuery = this.value;
