@@ -1066,6 +1066,10 @@ async function makeSquareThumb(url, size = 324) {
 }
 
 async function exportB50Image() {
+  if (typeof html2canvas === 'undefined') {
+  alert('核心组件(html2canvas)加载失败，请刷新页面或检查网络后重试！');
+  return;
+  }
   if (results.length === 0) {
     alert('没有可导出的成绩数据。\n请先输入 ACC 并点击「⚡ 计算」，或使用「▶ 开始查询」获取成绩。');
     return;
@@ -1239,8 +1243,9 @@ function buildB50ExportHTML(d) {
     ? `<img class="b50-avatar" src="${d.avatarSrc}" alt="" />`
     : '';
 
+  // 卡片渲染：加入左侧难度色条，并固定宽度为 6px
   const cardsHTML = d.items.map(item => `
-    <div class="b50-card">
+    <div class="b50-card" style="border-color: ${item.constStyle.color};">
       <div class="b50-art">
         <img src="${item.illustUrl}" alt="" />
       </div>
@@ -1269,8 +1274,9 @@ function buildB50ExportHTML(d) {
       }
       .b50-wrapper {
         width: 1700px;
-        background: #ffffff;
-        padding: 40px 40px 36px;
+        /* 背景画布增加浅灰底色，凸显卡片 */
+        background: #f1f5f9;
+        padding: 40px 40px 48px;
         color: #1e293b;
         box-sizing: border-box;
       }
@@ -1281,32 +1287,23 @@ function buildB50ExportHTML(d) {
         align-items: center;
         justify-content: space-between;
         gap: 32px;
-        padding: 4px 4px 20px 4px;
-        border-bottom: 2px solid #e2e8f0;
-        margin-bottom: 26px;
-        position: relative;
-      }
-      /* 底部分割线上的高亮装饰条 */
-      .b50-header::after {
-        content: '';
-        position: absolute;
-        bottom: -2px;
-        left: 0;
-        width: 96px;
-        height: 2px;
-        background: linear-gradient(90deg, #2563eb, #8b5cf6);
-        border-radius: 2px;
+        padding: 24px 28px;
+        background: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+        margin-bottom: 24px;
+        border: 1px solid #e2e8f0;
       }
       .b50-player {
         display: flex;
         align-items: center;
-        gap: 18px;
+        gap: 20px;
         min-width: 0;
       }
       .b50-avatar {
-        width: 80px;
-        height: 80px;
-        border-radius: 14px;
+        width: 88px;
+        height: 88px;
+        border-radius: 16px;
         object-fit: cover;
         border: 3px solid #2563eb;
         box-shadow: 0 4px 14px rgba(37,99,235,0.20);
@@ -1320,52 +1317,88 @@ function buildB50ExportHTML(d) {
         min-width: 0;
       }
       .b50-player-name {
-        font-size: 28px;
+        font-size: 32px;
         font-weight: 800;
         color: #0f172a;
         line-height: 1.15;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 560px;
-        letter-spacing: -0.3px;
+        max-width: 600px;
+        letter-spacing: -0.5px;
       }
       .b50-player-id {
-        font-size: 14px;
+        font-size: 15px;
         color: #64748b;
         font-weight: 500;
       }
+
+      /* 数据区 */
       .b50-stats {
         display: flex;
-        align-items: stretch;
-        gap: 8px;
+        align-items: center;
+        gap: 20px;
         flex-shrink: 0;
       }
-      .b50-stat {
+      
+      /* 平均 Rating 框：渐变底色，深蓝数字 */
+      .b50-main-stat {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        padding: 10px 20px;
-        background: linear-gradient(135deg, #f8fafc, #eff6ff);
-        border: 1px solid #e0e7ff;
-        border-radius: 12px;
-        min-width: 100px;
+        align-items: flex-end;
+        background: linear-gradient(135deg, #eff6ff, #e0e7ff);
+        padding: 12px 24px;
+        border-radius: 16px;
+        border: 1.5px solid #bfdbfe;
+        box-shadow: 0 2px 8px rgba(37,99,235,0.06);
       }
-      .b50-stat-value {
-        font-size: 26px;
-        font-weight: 800;
-        color: #2563eb;
+      .b50-main-stat-value {
+        font-size: 48px;
+        font-weight: 900;
+        color: #1e3a8a; /* 深邃蓝，与浅色渐变底产生高对比 */
         line-height: 1;
         font-variant-numeric: tabular-nums;
-        letter-spacing: -0.5px;
+        letter-spacing: -1px;
       }
-      .b50-stat-label {
-        font-size: 11px;
+      .b50-main-stat-label {
+        font-size: 13px;
+        color: #3b82f6;
+        font-weight: 700;
+        margin-top: 6px;
+        letter-spacing: 1px;
+      }
+
+      /* 剩余三个小数据框 */
+      .b50-sub-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .b50-sub-stat {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        font-size: 13px;
         color: #64748b;
         font-weight: 600;
-        letter-spacing: 0.3px;
+        background: #f8fafc;
+        padding: 6px 14px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+      }
+      .b50-sub-stat span {
+        font-size: 16px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* 分割线 */
+      .b50-divider {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+        margin: 24px 8px;
+        border-radius: 2px;
       }
 
       /* ===== 卡片网格 ===== */
@@ -1378,15 +1411,16 @@ function buildB50ExportHTML(d) {
         position: relative;
         display: flex;
         height: 108px;
-        background: linear-gradient(135deg, #ffffff 0%, #f8faff 100%);
-        border: 2px solid #3b82f6;
-        border-radius: 10px;
+        background: #ffffff;
+        /* 统一设置边框类型，左侧粗(6px)，其余三边细(2px) */
+        border-style: solid;
+        border-width: 2px 2px 2px 6px;
+        border-radius: 8px;
         overflow: hidden;
-        box-shadow: 0 2px 8px rgba(59,130,246,0.14);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.02);
         box-sizing: border-box;
       }
 
-      /* 曲绘：固定 1:1 方形，裁剪填充 */
       .b50-art {
         flex: 0 0 108px;
         width: 108px;
@@ -1405,15 +1439,14 @@ function buildB50ExportHTML(d) {
       .b50-info {
         flex: 1;
         min-width: 0;
-        padding: 10px 12px;
+        padding: 10px 12px 10px 14px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        gap: 4px;
       }
       .b50-name-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 6px;
         min-width: 0;
@@ -1421,7 +1454,7 @@ function buildB50ExportHTML(d) {
       .b50-name {
         flex: 1;
         min-width: 0;
-        font-size: 12px;
+        font-size: 12.5px;
         font-weight: 700;
         color: #0f172a;
         line-height: 1.25;
@@ -1434,9 +1467,9 @@ function buildB50ExportHTML(d) {
         background: #0f172a;
         color: #ffffff;
         font-size: 11px;
-        font-weight: 700;
-        padding: 2px 7px;
-        border-radius: 5px;
+        font-weight: 800;
+        padding: 1px 7px;
+        border-radius: 4px;
         font-variant-numeric: tabular-nums;
         letter-spacing: 0.2px;
       }
@@ -1458,7 +1491,7 @@ function buildB50ExportHTML(d) {
         font-variant-numeric: tabular-nums;
       }
       .b50-rating {
-        font-size: 17px;
+        font-size: 18px;
         font-weight: 800;
         color: #2563eb;
         font-variant-numeric: tabular-nums;
@@ -1488,25 +1521,23 @@ function buildB50ExportHTML(d) {
             <div class="b50-player-id">Phira ID: ${escapeHtml(d.playerId || '—')}</div>
           </div>
         </div>
+        
+        <!-- 核心数据区 -->
         <div class="b50-stats">
-          <div class="b50-stat">
-            <div class="b50-stat-value">${d.avgRating.toFixed(2)}</div>
-            <div class="b50-stat-label">平均 Rating</div>
+          <div class="b50-sub-stats">
+            <div class="b50-sub-stat">最高 <span style="color:#10b981;">${d.maxRating.toFixed(2)}</span></div>
+            <div class="b50-sub-stat">最低 <span style="color:#f59e0b;">${d.minRating.toFixed(2)}</span></div>
+            <div class="b50-sub-stat">有效谱面 <span style="color:#8b5cf6;">${d.itemCount}</span></div>
           </div>
-          <div class="b50-stat">
-            <div class="b50-stat-value" style="color:#10b981;">${d.maxRating.toFixed(2)}</div>
-            <div class="b50-stat-label">最高</div>
-          </div>
-          <div class="b50-stat">
-            <div class="b50-stat-value" style="color:#f59e0b;">${d.minRating.toFixed(2)}</div>
-            <div class="b50-stat-label">最低</div>
-          </div>
-          <div class="b50-stat">
-            <div class="b50-stat-value" style="color:#8b5cf6;">${d.itemCount}</div>
-            <div class="b50-stat-label">有效谱面</div>
+          <div class="b50-main-stat">
+            <div class="b50-main-stat-value">${d.avgRating.toFixed(2)}</div>
+            <div class="b50-main-stat-label">平均 Rating</div>
           </div>
         </div>
       </div>
+
+      <!-- 新增：美观的分割线 -->
+      <div class="b50-divider"></div>
 
       <div class="b50-grid">
         ${cardsHTML}
@@ -1910,6 +1941,10 @@ function renderAccMeter(song, passAcc, backlightAcc, breakAcc) {
 detailExportBtn.addEventListener('click', detailExportImage);
 
 async function detailExportImage() {
+  if (typeof html2canvas === 'undefined') {
+  alert('核心组件(html2canvas)加载失败，请刷新页面或检查网络后重试！');
+  return;
+  }
   if (!detailCurrentSong) { alert('请先打开一个谱面详情'); return; }
   
   if (queryRunning) {
@@ -2095,7 +2130,7 @@ function buildSoloExportHTML(d) {
     markersHTML += `<div class="acc-marker-label ${m.labelCls}" style="left:${pos}%;">${m.value}<span class="label-tag">${m.label}</span></div>`;
   });
 
-  // 玩家箭头（不含 "你的 ACC" 标签）
+  // 玩家箭头
   const playerPos = Math.max(2, Math.min(98, accToPos(d.acc)));
   const playerArrowHTML = `
     <div class="acc-player-arrow" style="left:${playerPos}%;">
@@ -2103,48 +2138,61 @@ function buildSoloExportHTML(d) {
       <div class="arrow-value" style="color:${d.staccColor};">${d.acc.toFixed(2)}%</div>
     </div>`;
 
-  // 头像（可选）
+  // 头像
   const avatarHTML = d.avatarSrc
     ? `<img class="solo-avatar" src="${d.avatarSrc}" alt="" />`
     : '';
 
   return `
     <style>
-      /* 强制覆盖所有子元素的字体 */
       .solo-wrapper, .solo-wrapper * {
         font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, sans-serif !important;
       }
       .solo-wrapper {
         width: 1080px;
-        background: #fff;
-        padding: 36px 112px 24px 56px;
+        background: #ffffff;
+        padding: 40px 112px 36px 64px;
         color: #1e293b;
         box-sizing: border-box;
+        position: relative;
+      }
+
+      /* 标题区 */
+      .solo-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .solo-title-deco {
+        width: 8px;
+        height: 40px;
+        border-radius: 4px;
+        background: linear-gradient(180deg, #2563eb, #8b5cf6);
+        flex-shrink: 0;
       }
       .solo-title {
-        font-size: 26px;
-        font-weight: 700;
+        font-size: 32px;
+        font-weight: 800;
         color: #0f172a;
-        line-height: 1.35;
+        line-height: 1.3;
         word-break: break-word;
-        margin-bottom: 18px;
+        letter-spacing: -0.5px;
       }
-      .solo-divider {
-        height: 0;
-        border-top: 2px solid #e2e8f0;
-        margin: 20px 0;
-      }
+
+      /* 内容区 */
       .solo-body {
         display: flex;
-        gap: 28px;
+        gap: 36px;
         align-items: stretch;
+        margin-bottom: 32px;
       }
       .solo-art-wrap {
         flex-shrink: 0;
-        border-radius: 12px;
+        border-radius: 16px;
         overflow: hidden;
         background: #f1f5f9;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.10);
       }
       .solo-art-wrap img {
         width: 100%;
@@ -2156,89 +2204,128 @@ function buildSoloExportHTML(d) {
         min-width: 0;
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        gap: 10px;
+        justify-content: space-between;
       }
+
+      /* 玩家 */
       .solo-player {
         display: flex;
         align-items: center;
-        gap: 12px;
-        margin-bottom: 6px;
+        gap: 14px;
+        margin-bottom: 16px;
       }
       .solo-avatar {
-        width: 56px;
-        height: 56px;
-        border-radius: 10px;
+        width: 64px;
+        height: 64px;
+        border-radius: 12px;
         object-fit: cover;
-        border: 2px solid #2563eb;
+        border: 3px solid #2563eb;
+        box-shadow: 0 4px 10px rgba(37,99,235,0.15);
         flex-shrink: 0;
       }
       .solo-player-name {
-        font-size: 20px;
-        font-weight: 700;
+        font-size: 24px;
+        font-weight: 800;
         color: #0f172a;
-        word-break: break-word;
       }
-      .solo-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
+
+      /* 三个数据小卡片 */
+      .solo-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
         gap: 12px;
-        padding: 4px 0;
-        border-bottom: 1px dashed #eef2f6;
+        margin-bottom: 16px;
       }
-      .solo-row:last-child { border-bottom: none; }
-      .solo-row .solo-label {
-        font-size: 13px;
+      .solo-stat-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .solo-stat-box .label {
+        font-size: 12px;
         color: #64748b;
-        flex-shrink: 0;
+        font-weight: 600;
       }
-      .solo-row .solo-value {
-        font-size: 15px;
-        font-weight: 700;
+      .solo-stat-box .value {
+        font-size: 18px;
+        font-weight: 800;
         color: #1e293b;
         font-variant-numeric: tabular-nums;
-        text-align: right;
       }
-      .solo-row .solo-value.rating {
-        font-size: 22px;
-        color: #2563eb;
-      }
-      .solo-row .solo-value.rank {
-        color: #8b5cf6;
-      }
-      .solo-row .solo-value.const {
+      .solo-stat-box .value.const {
         display: inline-block;
-        padding: 1px 10px;
+        padding: 2px 10px;
         border-radius: 6px;
-        font-size: 15px;
+        font-size: 16px;
+        align-self: flex-start;
       }
-      /* ACC 进度条 */
-      .solo-meter-wrap {
-        position: relative;
-        padding: 56px 0 36px;
+
+      /* 底部高亮横幅 */
+      .solo-highlight {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: linear-gradient(135deg, #eff6ff, #e0e7ff);
+        border: 1px solid #bfdbfe;
+        border-radius: 14px;
+        padding: 12px 20px;
+      }
+      .solo-rating-wrap {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .solo-rating-wrap .label {
+        font-size: 14px;
+        color: #475569;
+        font-weight: 700;
+      }
+      .solo-rating-wrap .value {
+        font-size: 32px;
+        font-weight: 900;
+        color: #2563eb;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.5px;
+      }
+      .solo-rank-badge {
+        background: #ffffff;
+        border: 1px solid #c7d2fe;
+        color: #4f46e5;
+        font-size: 15px;
+        font-weight: 800;
+        padding: 6px 16px;
+        border-radius: 30px;
+        box-shadow: 0 2px 6px rgba(79,70,229,0.1);
+      }
+
+      /* 进度条 */
+      .solo-meter-container {
+        background: #f8fafc;
+        border-radius: 16px;
+        /* 上方留出 56px 给刻度标签，下方留出 72px 给箭头和数字 */
+        padding: 56px 32px 72px; 
+        border: 1px solid #e2e8f0;
       }
       .solo-meter-track {
         position: relative;
-        height: 18px;
+        height: 20px;
         border-radius: 10px;
-        background: linear-gradient(90deg,
-          #ef4444 0%,
-          #f59e0b 20%,
-          #facc15 35%,
-          #3b82f6 55%,
-          #8b5cf6 75%,
-          #10b981 100%);
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);
+        background: linear-gradient(90deg, #ef4444 0%, #f59e0b 20%, #facc15 35%, #3b82f6 55%, #8b5cf6 75%, #10b981 100%);
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
       }
       .solo-meter-track .acc-marker {
         position: absolute;
-        top: -6px;
-        bottom: -6px;
+        top: -8px;
+        bottom: -8px;
         width: 4px;
         border-radius: 2px;
         transform: translateX(-50%);
-        box-shadow: 0 0 0 2px rgba(255,255,255,0.9);
+        box-shadow: 0 0 0 3px rgba(255,255,255,1);
         z-index: 2;
       }
       .solo-meter-track .acc-marker.marker-pass      { background: #3b82f6; }
@@ -2247,29 +2334,30 @@ function buildSoloExportHTML(d) {
       .solo-meter-track .acc-marker.marker-max       { background: #1e293b; }
       .solo-meter-track .acc-marker-label {
         position: absolute;
-        bottom: calc(100% + 10px);
+        bottom: calc(100% + 12px);
         transform: translateX(-50%);
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 800;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
         z-index: 3;
       }
       .solo-meter-track .acc-marker-label .label-tag {
         display: block;
-        font-size: 10px;
-        font-weight: 500;
+        font-size: 11px;
+        font-weight: 600;
         color: #94a3b8;
         text-align: center;
-        margin-top: 1px;
+        margin-top: 2px;
       }
       .solo-meter-track .acc-marker-label.label-pass      { color: #3b82f6; }
       .solo-meter-track .acc-marker-label.label-backlight { color: #8b5cf6; }
       .solo-meter-track .acc-marker-label.label-break     { color: #10b981; }
       .solo-meter-track .acc-marker-label.label-max       { color: #1e293b; }
+      
       .solo-meter-track .acc-player-arrow {
         position: absolute;
-        top: calc(100% + 4px);
+        top: calc(100% + 6px);
         transform: translateX(-50%);
         z-index: 4;
         display: flex;
@@ -2279,25 +2367,40 @@ function buildSoloExportHTML(d) {
       .solo-meter-track .acc-player-arrow .arrow-icon {
         width: 0;
         height: 0;
-        border-left: 7px solid transparent;
-        border-right: 7px solid transparent;
-        border-bottom: 10px solid #94a3b8;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 12px solid #94a3b8;
       }
       .solo-meter-track .acc-player-arrow .arrow-value {
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 15px;
+        font-weight: 800;
         font-variant-numeric: tabular-nums;
-        margin-top: 3px;
-        padding: 1px 6px;
-        background: rgba(255,255,255,0.9);
-        border-radius: 4px;
+        margin-top: 4px;
+        padding: 2px 8px;
+        background: #ffffff;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         white-space: nowrap;
+      }
+
+      /* 页脚水印 */
+      .solo-footer {
+        text-align: right;
+        margin-top: 20px;
+        font-size: 12px;
+        color: #cbd5e1;
+        font-weight: 500;
+        letter-spacing: 1px;
       }
     </style>
     <div class="solo-wrapper">
-      <div class="solo-title">${escapeHtml(d.song.name)}</div>
-      <div class="solo-divider"></div>
+      <!-- 标题 -->
+      <div class="solo-header">
+        <div class="solo-title-deco"></div>
+        <div class="solo-title">${escapeHtml(d.song.name)}</div>
+      </div>
 
+      <!-- 内容 -->
       <div class="solo-body">
         <div class="solo-art-wrap" style="width:${d.artW}px;height:${d.artH}px;">
           <img src="${d.illustUrl}" alt="" />
@@ -2307,37 +2410,41 @@ function buildSoloExportHTML(d) {
             ${avatarHTML}
             <span class="solo-player-name">${escapeHtml(d.playerName)}</span>
           </div>
-          <div class="solo-row">
-            <span class="solo-label">难度</span>
-            <span class="solo-value const" style="background:${d.cStyle.bg};color:${d.cStyle.color};">${d.song.constant}</span>
+          
+          <div class="solo-stats-grid">
+            <div class="solo-stat-box">
+              <span class="label">谱面难度</span>
+              <span class="value const" style="background:${d.cStyle.bg};color:${d.cStyle.color};">${d.song.constant}</span>
+            </div>
+            <div class="solo-stat-box">
+              <span class="label">原始 ACC</span>
+              <span class="value">${d.acc.toFixed(2)}%</span>
+            </div>
+            <div class="solo-stat-box">
+              <span class="label">STACC</span>
+              <span class="value" style="color:${d.staccColor};">${d.staccPct.toFixed(2)}%</span>
+            </div>
           </div>
-          <div class="solo-row">
-            <span class="solo-label">原始 ACC</span>
-            <span class="solo-value">${d.acc.toFixed(2)}%</span>
-          </div>
-          <div class="solo-row">
-            <span class="solo-label">STACC</span>
-            <span class="solo-value" style="color:${d.staccColor};">${d.staccPct.toFixed(2)}%</span>
-          </div>
-          <div class="solo-row">
-            <span class="solo-label">单曲 Rating</span>
-            <span class="solo-value rating">${d.rating.toFixed(2)}</span>
-          </div>
-          <div class="solo-row">
-            <span class="solo-label">B50 排名</span>
-            <span class="solo-value rank">${escapeHtml(d.rankText)}</span>
+
+          <div class="solo-highlight">
+            <div class="solo-rating-wrap">
+              <span class="label">单曲 Rating</span>
+              <span class="value">${d.rating.toFixed(2)}</span>
+            </div>
+            <div class="solo-rank-badge">B50 排名 ${escapeHtml(d.rankText)}</div>
           </div>
         </div>
       </div>
 
-      <div class="solo-divider"></div>
-
-      <div class="solo-meter-wrap">
+      <!-- 进度条 -->
+      <div class="solo-meter-container">
         <div class="solo-meter-track">
           ${markersHTML}
           ${playerArrowHTML}
         </div>
       </div>
+
+      <div class="solo-footer">Generated by DFC Rating System</div>
     </div>
   `;
 }
@@ -3323,6 +3430,68 @@ async function handlePlayerSave() {
 }
 
 // ============================================================
+// 导出模块预加载（Warmup）
+// ============================================================
+function warmupExportFrames() {
+  const doWarmup = () => {
+    try {
+      const prevDisplay = exportContainer.style.display;
+      const prevVisibility = exportContainer.style.visibility;
+      const prevPosition = exportContainer.style.position;
+      
+      // 让容器离屏且不可见，但保留在 DOM 中让浏览器计算排版
+      exportContainer.style.display = 'block';
+      exportContainer.style.visibility = 'hidden';
+      exportContainer.style.position = 'absolute';
+      exportContainer.style.left = '-9999px';
+      exportContainer.style.top = '0';
+      
+      // 1. 预热单曲导出模板
+      const dummySolo = buildSoloExportHTML({
+        song: SONG_DATA[0] || { name: 'Warmup', constant: 10 },
+        illustUrl: NO_COVER_URL, artW: 400, artH: 225, avatarSrc: '',
+        playerName: 'Warmup', acc: 99, staccPct: 98, staccColor: '#3b82f6',
+        rating: 10.0, rankText: '#1', cStyle: {bg: '#fff', color: '#000'},
+        passPct: 97, backlightPct: 98, breakPct: 99
+      });
+      exportContainer.innerHTML = dummySolo;
+      
+      // 2. 预热 B50 导出模板
+      const dummyB50 = buildB50ExportHTML({
+        playerName: 'Warmup', playerId: '123', avatarSrc: '',
+        avgRating: 10, maxRating: 10, minRating: 10, itemCount: 1,
+        items: [{
+          rank: 1, name: 'Warmup', constant: 10, acc: 99, stacc: 98, rating: 10,
+          illustUrl: NO_COVER_URL, constStyle: {bg: '#fff', color: '#000'}, staccColor: '#3b82f6'
+        }]
+      });
+      exportContainer.innerHTML += dummyB50;
+      
+      // 渲染完成后清理，恢复原状
+      setTimeout(() => {
+        exportContainer.innerHTML = '';
+        exportContainer.style.display = prevDisplay;
+        exportContainer.style.visibility = prevVisibility;
+        exportContainer.style.position = prevPosition;
+        exportContainer.style.left = '';
+        exportContainer.style.top = '';
+        console.log('📦 导出模板预渲染完成，已清理缓存');
+      }, 1000);
+      
+    } catch (e) {
+      console.warn('导出模板预加载失败:', e);
+    }
+  };
+
+  // 利用浏览器的空闲时间执行，不阻塞主线程
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(doWarmup);
+  } else {
+    setTimeout(doWarmup, 5000); // 降级方案
+  }
+}
+
+// ============================================================
 // 21. 初始化
 // ============================================================
 async function init() {
@@ -3378,6 +3547,8 @@ async function init() {
   setTimeout(() => {
     preloadAllFullCovers().catch(e => console.warn('原图预加载异常:', e));
   }, 3000);
+    // 延迟 4 秒后启动导出模板预渲染，避免影响首屏加载
+  setTimeout(warmupExportFrames, 4000);
 }
 
 init();
