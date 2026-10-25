@@ -29,7 +29,7 @@ const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127
 const THUMB_BASE_URL = './images';
 
 // 原图：放在 GitHub 仓库（请替换为你的真实用户名）
-const FULL_BASE_URL = 'https://cdn.jsdelivr.net/gh/Deb1ruN/dfc-rating-covers@main';
+const FULL_BASE_URL = 'https://cdn.jsdmirror.com/gh/Deb1ruN/dfc-rating-covers@main';
 const FULL_FALLBACK_BASE_URL = 'https://Deb1ruN.github.io/dfc-rating-covers';
 function calcSTACC(acc, D) {
   if (D === undefined || D === null || isNaN(D)) return null;

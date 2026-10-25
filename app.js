@@ -384,6 +384,7 @@ async function getIllustration(chartId, size = 'thumb') {
   const key = String(chartId);
   await localCoverManifestReady;
 
+  // 【优化】优先读取本地 manifest，直接返回，绝不排队等待
   if (localCoverManifest && localCoverManifest[key]) {
     const entry = localCoverManifest[key];
     let filename = '';
@@ -401,8 +402,20 @@ async function getIllustration(chartId, size = 'thumb') {
       }
     }
   }
-  // 回退到 Phira API（极少触发）
-  return null;
+
+  // 只有在本地没有 manifest 缓存时，才进入队列去请求 Phira API
+  if (illustPending.has(key)) return illustPending.get(key);
+
+  const p = runIllustTask(() =>
+    fetch(`${API_BASE}/chart/${chartId}`)
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(d => d.illustration || null)
+  )
+    .then(url => { illustPending.delete(key); return url; })
+    .catch(() => { illustPending.delete(key); return null; });
+
+  illustPending.set(key, p);
+  return p;
 }
 
 function getChartMeta(chartId) {
@@ -1081,7 +1094,9 @@ async function exportB50Image() {
     alert('请先等待当前的自动查询完成，再进行导出。');
     return;
   }
-
+  // 暂停后台曲绘预加载和网络请求队列，全力加速导出
+  abortPreload();
+  suspendIllustLoading();
   // 按钮进入状态
   exportB50Btn.disabled = true;
   const origText = exportB50Btn.textContent;
@@ -1207,13 +1222,14 @@ async function exportB50Image() {
   } finally {
     exportB50Btn.disabled = false;
     exportB50Btn.textContent = origText;
-    // 恢复容器原始样式
     exportContainer.style.width = prevWidth;
     exportContainer.style.padding = prevPadding;
-    // 隐藏进度条
     progressBarWrap.classList.remove('active');
     progressBar.style.width = '0%';
     queryProgressText.textContent = '就绪';
+    
+    // 恢复后台进程
+    resumeIllustLoading();
   }
 }
 
@@ -1247,11 +1263,14 @@ function buildB50ExportHTML(d) {
 
   return `
     <style>
+      /* 强制覆盖所有子元素的字体 */
+      .b50-wrapper, .b50-wrapper * {
+        font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, sans-serif !important;
+      }
       .b50-wrapper {
         width: 1700px;
         background: #ffffff;
         padding: 40px 40px 36px;
-        font-family: 'Microsoft YaHei', '微软雅黑', 'Segoe UI', Roboto, sans-serif;
         color: #1e293b;
         box-sizing: border-box;
       }
@@ -1892,6 +1911,16 @@ detailExportBtn.addEventListener('click', detailExportImage);
 
 async function detailExportImage() {
   if (!detailCurrentSong) { alert('请先打开一个谱面详情'); return; }
+  
+  if (queryRunning) {
+    alert('请先等待当前的自动查询完成，再进行导出。');
+    return;
+  }
+  
+  // 暂停后台加载，全力加速导出
+  abortPreload();
+  suspendIllustLoading();
+
   const song = detailCurrentSong;
   const songIndex = SONG_DATA.indexOf(song);
   if (songIndex < 0) return;
@@ -2034,6 +2063,8 @@ const illustUrl = await getIllustration(song.chartId, useFull ? 'full' : 'thumb'
   } finally {
     detailExportBtn.disabled = false;
     detailExportBtn.textContent = originalText;
+    // 恢复后台进程
+    resumeIllustLoading();
   }
 }
 
@@ -2079,11 +2110,14 @@ function buildSoloExportHTML(d) {
 
   return `
     <style>
+      /* 强制覆盖所有子元素的字体 */
+      .solo-wrapper, .solo-wrapper * {
+        font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, sans-serif !important;
+      }
       .solo-wrapper {
         width: 1080px;
         background: #fff;
         padding: 36px 112px 24px 56px;
-        font-family: 'Microsoft YaHei', '微软雅黑', 'Segoe UI', Roboto, sans-serif;
         color: #1e293b;
         box-sizing: border-box;
       }
