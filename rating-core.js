@@ -1,6 +1,6 @@
 // rating-core.js
 const TOP_N = 50;
-const VERSION = '5.5.0';
+const VERSION = '5.6.0';
 const API_BASE = 'https://phira.5wyxi.com';
 const PHIRA_WEB_USER = 'https://phira.moe/user/';
 const KEY = {
@@ -17,7 +17,8 @@ const KEY = {
   chartMeta: 'dfc_rating_chart_meta_cache',
   settingsGuideHints: 'dfc_rating_setting_guide_hints',
   settingsUseFullCover: 'dfc_rating_setting_use_full_cover',
-  settingsConstStyle: 'dfc_rating_setting_const_style'
+  settingsConstStyle: 'dfc_rating_setting_const_style',
+  segmentDetailAccs: 'dfc_rating_segment_detail_accs_v1'
 };
 const NO_COVER_URL = 'no-cover.png';
 const LOADING_COVER_URL = 'loading-cover.png';
@@ -58,6 +59,36 @@ function getMultiplier(stacc) {
   return 1.17;
 }
 function calcSingleRating(constant, stacc) { return constant * getMultiplier(stacc); }
+
+// 段位力 Rating：以段位难度为基准的加成分段函数
+// STACC 96% -> 难度 -1.00；97% -> 难度 +0.00；98.5% -> +0.50；99.5% -> +1.05；100% -> +1.75
+function getSegmentRatingBonus(stacc) {
+  if (stacc === null || isNaN(stacc) || stacc < 0.96) return null;
+  if (stacc >= 1.00) return 1.75;
+
+  const points = [
+    { s: 0.96, b: -1.00 },
+    { s: 0.97, b: 0.00 },
+    { s: 0.985, b: 0.50 },
+    { s: 0.995, b: 1.05 },
+    { s: 1.00, b: 1.75 }
+  ];
+  for (let i = 0; i < points.length - 1; i++) {
+    if (stacc >= points[i].s && stacc < points[i + 1].s) {
+      const t = (stacc - points[i].s) / (points[i + 1].s - points[i].s);
+      return points[i].b + t * (points[i + 1].b - points[i].b);
+    }
+  }
+  return 1.75;
+}
+
+function calcSegmentRating(difficulty, stacc) {
+  if (difficulty === null || difficulty === undefined || difficulty === '' || isNaN(difficulty)) return null;
+  const bonus = getSegmentRatingBonus(stacc);
+  if (bonus === null) return null;
+  return Number(difficulty) + bonus;
+}
+
 function getStaccColor(stacc) {
   if (stacc === null || isNaN(stacc)) return '#94a3b8';
   if (stacc < 0.80) return '#ef4444';

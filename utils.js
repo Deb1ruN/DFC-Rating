@@ -61,3 +61,55 @@ function getConstColor(c) {
   if (c >= 8) return '#64748b';    // 灰蓝
   return '#94a3b8';                // 浅灰
 }
+
+// ===== 导出画布：高质量降采样 + WebP/JPEG 编码 =====
+// 调用方先用较高的 html2canvas scale 渲染，再降到目标宽度，文字边缘会比直接低 scale 更干净
+const EXPORT_WEBP_QUALITY = 0.94;
+const EXPORT_JPEG_QUALITY = 0.95;
+let exportWebPSupported = null;
+
+function supportsWebPEncoding() {
+  if (exportWebPSupported !== null) return exportWebPSupported;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 1;
+    c.height = 1;
+    exportWebPSupported = c.toDataURL('image/webp').startsWith('data:image/webp');
+  } catch (e) {
+    exportWebPSupported = false;
+  }
+  return exportWebPSupported;
+}
+
+function downscaleExportCanvas(source, targetWidth) {
+  if (!targetWidth || targetWidth >= source.width) return source;
+  const targetHeight = Math.round(source.height * (targetWidth / source.width));
+  const out = document.createElement('canvas');
+  out.width = targetWidth;
+  out.height = targetHeight;
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+  return out;
+}
+
+function canvasToOptimizedBlob(source, targetWidth) {
+  const canvas = downscaleExportCanvas(source, targetWidth);
+  const type = supportsWebPEncoding() ? 'image/webp' : 'image/jpeg';
+  const quality = type === 'image/webp' ? EXPORT_WEBP_QUALITY : EXPORT_JPEG_QUALITY;
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, type, quality);
+  });
+}
+
+function downloadBlobWithExt(blob, baseName) {
+  const extMap = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png' };
+  const ext = extMap[blob.type] || 'png';
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.download = `${baseName}.${ext}`;
+  link.href = url;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

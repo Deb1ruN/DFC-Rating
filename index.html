@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.5.0</title>
+<title>DFC Rating计算 · v5.6.0</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -42,13 +42,13 @@
     <div class="rating-card">
       <div class="rating-left">
         <div class="rating-main">
-          <span class="rating-label" id="ratingLabel">游玩 Rating</span>
+          <span class="rating-label" id="ratingLabel">常规 Rating</span>
           <span class="rating-value" id="displayRating">—</span>
           <span class="rating-count" id="ratingCountHint">(0 首)</span>
         </div>
         <div class="rating-toggle">
-          <button id="avgToggleSum">总和</button>
-          <button id="avgToggleAvg" class="active">平均</button>
+          <button id="ratingModeNormal" class="active">常规</button>
+          <button id="ratingModeForce">段位力</button>
         </div>
         <div class="rating-meta">
           <span>成绩更新时间：<strong id="lastCalcTime">—</strong></span>
@@ -156,11 +156,17 @@
   <section class="page" data-page="preview">
     <div class="preview-header">
       <h2>📋 谱面预览</h2>
-      <span class="preview-count" id="previewCount">—</span>
+      <div class="preview-header-right">
+        <div class="preview-mode-toggle" id="previewModeToggle">
+          <button class="preview-mode-btn active" data-mode="single">单曲</button>
+          <button class="preview-mode-btn" data-mode="segment">段位</button>
+        </div>
+        <span class="preview-count" id="previewCount">—</span>
+      </div>
     </div>
     <div class="guide-hint">
       <span class="hint-icon">💡</span>
-      <span>提示：点击任意谱面项可进入谱面详情页，查看曲绘、谱师、曲师以及 ACC 进度条。</span>
+      <span>提示：点击任意谱面或段位项可进入详情页，查看曲绘、谱师、曲师以及 ACC 进度条。</span>
     </div>
     <div class="preview-toolbar">
       <div class="preview-search-bar">
@@ -168,7 +174,7 @@
         <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
         <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
       </div>
-      <div class="preview-sort-wrap">
+      <div class="preview-sort-wrap" id="previewSortWrap">
         <label for="previewSortSelect" class="sort-label">排序</label>
         <select id="previewSortSelect">
           <option value="rating">单曲 Rating</option>
@@ -223,7 +229,7 @@
       </div>
 
       <div class="detail-stats-card">
-        <div class="detail-stats-title">📊 谱面数据</div>
+        <div class="detail-stats-title" id="detailStatsTitle">📊 谱面数据</div>
         <div class="detail-stat-row">
           <span class="stat-label">黄键占比</span>
           <span class="stat-value" id="detailYellow" style="color:#facc15;">—</span>
@@ -241,6 +247,61 @@
           <span class="stat-value" id="detailBreak" style="color:#10b981;">—</span>
         </div>
       </div>
+
+      <div class="detail-notes-card" id="detailNotesCard" style="display:none;">
+        <div class="detail-notes-title">🎼 段位物量</div>
+        <div class="detail-notes-grid" id="detailNotesGrid"></div>
+      </div>
+    </div>
+
+    <div class="detail-seg-calc" id="detailSegCalcSection" style="display:none;">
+      <div class="seg-cards">
+        <div class="calc-module">
+          <div class="seg-calc-header">
+            <div class="module-title" id="detailSegModeTitle">策略一：逆向推导 <span class="tag">已知分段ACC</span></div>
+          </div>
+
+          <div id="detailSegFieldsReverse">
+            <div class="seg-input-row">
+              <div class="field"><label>A₁（第1首结束）</label><input type="number" id="detailSegA1" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>A₂（前2首结束）</label><input type="number" id="detailSegA2" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>A₃（前3首结束）</label><input type="number" id="detailSegA3" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>A₄（全部结束）</label><input type="number" id="detailSegA4" step="any" min="0" max="100" placeholder="0~100" /></div>
+            </div>
+          </div>
+
+          <div id="detailSegFieldsForward" style="display:none;">
+            <div class="seg-input-row">
+              <div class="field"><label>S₁</label><input type="number" id="detailSegS1" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>S₂</label><input type="number" id="detailSegS2" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>S₃</label><input type="number" id="detailSegS3" step="any" min="0" max="100" placeholder="0~100" /></div>
+              <div class="field"><label>S₄</label><input type="number" id="detailSegS4" step="any" min="0" max="100" placeholder="0~100" /></div>
+            </div>
+          </div>
+
+          <div class="module-actions">
+            <button class="btn btn-primary" id="detailSegBtnReverse">⬅️ 逆向推导</button>
+            <button class="btn btn-primary" id="detailSegBtnForward" style="display:none;">➡️ 正向合成</button>
+            <button class="btn btn-outline" id="detailSegBtnSwitchMode">🔄 切换计算方向</button>
+          </div>
+          <div class="seg-result-area" id="detailSegResultReverse">
+            <div class="hint-default">输入分段ACC后点击推导</div>
+          </div>
+          <div class="seg-result-area" id="detailSegResultForward" style="display:none;">
+            <div class="hint-default">输入单曲ACC后点击合成</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="seg-charts">
+        <div class="seg-chart-box">
+          <div class="seg-chart-header">
+            <h3 id="detailSegChartTitle">📈 分段ACC (折线图)</h3>
+            <button class="btn btn-outline btn-sm" id="detailSegBtnChartToggle">🔄 切换显示数据</button>
+          </div>
+          <canvas id="detailSegChart"></canvas>
+        </div>
+      </div>
     </div>
 
     <div class="acc-meter-card">
@@ -253,7 +314,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.5.0</span>
+      <span class="badge">v5.6.0</span>
     </div>
 
     <div class="benchmark-section">
@@ -369,38 +430,37 @@
 
     <div class="seg-cards">
       <div class="calc-module">
-        <div class="module-title">策略一：逆向推导 <span class="tag">已知分段ACC</span></div>
-        <div class="seg-input-row">
-          <div class="field"><label>A₁（第1首结束）</label><input type="number" id="segA1" step="any" min="0" max="100" placeholder="0~100" /></div>
-          <div class="field"><label>A₂（前2首结束）</label><input type="number" id="segA2" step="any" min="0" max="100" placeholder="0~100" /></div>
+        <div class="seg-calc-header">
+          <div class="module-title" id="segModeTitle">策略一：逆向推导 <span class="tag">已知分段ACC</span></div>
         </div>
-        <div class="seg-input-row">
-          <div class="field"><label>A₃（前3首结束）</label><input type="number" id="segA3" step="any" min="0" max="100" placeholder="0~100" /></div>
-          <div class="field"><label>A₄（全部结束）</label><input type="number" id="segA4" step="any" min="0" max="100" placeholder="0~100" /></div>
+
+        <div id="segFieldsReverse">
+          <div class="seg-input-row">
+            <div class="field"><label>A₁（第1首结束）</label><input type="number" id="segA1" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>A₂（前2首结束）</label><input type="number" id="segA2" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>A₃（前3首结束）</label><input type="number" id="segA3" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>A₄（全部结束）</label><input type="number" id="segA4" step="any" min="0" max="100" placeholder="0~100" /></div>
+          </div>
         </div>
+
+        <div id="segFieldsForward" style="display:none;">
+          <div class="seg-input-row">
+            <div class="field"><label>S₁</label><input type="number" id="segS1" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>S₂</label><input type="number" id="segS2" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>S₃</label><input type="number" id="segS3" step="any" min="0" max="100" placeholder="0~100" /></div>
+            <div class="field"><label>S₄</label><input type="number" id="segS4" step="any" min="0" max="100" placeholder="0~100" /></div>
+          </div>
+        </div>
+
         <div class="module-actions">
           <button class="btn btn-primary" id="segBtnReverse">⬅️ 逆向推导</button>
-          <button class="btn btn-success" id="segBtnFillForward" disabled>⬇️ 填入策略二</button>
+          <button class="btn btn-primary" id="segBtnForward" style="display:none;">➡️ 正向合成</button>
+          <button class="btn btn-outline" id="segBtnSwitchMode">🔄 切换计算方向</button>
         </div>
         <div class="seg-result-area" id="segResultReverse">
           <div class="hint-default">输入分段ACC后点击推导</div>
         </div>
-      </div>
-
-      <div class="calc-module">
-        <div class="module-title">策略二：正向合成 <span class="tag">已知单曲ACC</span></div>
-        <div class="seg-input-row">
-          <div class="field"><label>S₁</label><input type="number" id="segS1" step="any" min="0" max="100" placeholder="0~100" /></div>
-          <div class="field"><label>S₂</label><input type="number" id="segS2" step="any" min="0" max="100" placeholder="0~100" /></div>
-        </div>
-        <div class="seg-input-row">
-          <div class="field"><label>S₃</label><input type="number" id="segS3" step="any" min="0" max="100" placeholder="0~100" /></div>
-          <div class="field"><label>S₄</label><input type="number" id="segS4" step="any" min="0" max="100" placeholder="0~100" /></div>
-        </div>
-        <div class="module-actions">
-          <button class="btn btn-primary" id="segBtnForward">➡️ 正向合成</button>
-        </div>
-        <div class="seg-result-area" id="segResultForward">
+        <div class="seg-result-area" id="segResultForward" style="display:none;">
           <div class="hint-default">输入单曲ACC后点击合成</div>
         </div>
       </div>
@@ -408,12 +468,11 @@
 
     <div class="seg-charts">
       <div class="seg-chart-box">
-        <h3>📈 分段ACC (折线图)</h3>
-        <canvas id="segLineChart"></canvas>
-      </div>
-      <div class="seg-chart-box">
-        <h3>📊 单曲ACC (柱状图)</h3>
-        <canvas id="segBarChart"></canvas>
+        <div class="seg-chart-header">
+          <h3 id="segChartTitle">📈 分段ACC (折线图)</h3>
+          <button class="btn btn-outline btn-sm" id="segBtnChartToggle">🔄 切换显示数据</button>
+        </div>
+        <canvas id="segChart"></canvas>
       </div>
     </div>
   </section>
@@ -511,10 +570,24 @@
 </main>
 
 <div id="exportContainer"></div>
-<script src="data-songs.js"></script>
-<script src="data-segments.js"></script>
-<script src="rating-core.js"></script>
-<script src="utils.js"></script>
-<script src="app.js"></script>
+<script src="data-songs.js" defer></script>
+<script src="data-segments.js" defer></script>
+<script src="rating-core.js" defer></script>
+<script src="utils.js" defer></script>
+<!-- app.js 已按功能拆分至 app/ 目录，defer 会按文档顺序执行，加载顺序不可随意调整 -->
+<script src="app/state.js" defer></script>
+<script src="app/settings-player.js" defer></script>
+<script src="app/navigation-covers.js" defer></script>
+<script src="app/main-table.js" defer></script>
+<script src="app/query.js" defer></script>
+<script src="app/b50-export.js" defer></script>
+<script src="app/preview-detail.js" defer></script>
+<script src="app/detail-export.js" defer></script>
+<script src="app/single-calc.js" defer></script>
+<script src="app/segment.js" defer></script>
+<script src="app/segment-export.js" defer></script>
+<script src="app/segment-detail.js" defer></script>
+<script src="app/player-page.js" defer></script>
+<script src="app/init.js" defer></script>
 </body>
 </html>
