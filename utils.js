@@ -18,6 +18,16 @@ function escapeHtml(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 }
+
+// 段位物量：允许单首为 0（例如三首段位的第四首），但不能四首全为 0
+function isValidSegmentNotes(notes) {
+  return Array.isArray(notes) && notes.length === 4 &&
+    notes.every(n => Number.isInteger(n) && n >= 0) &&
+    notes.some(n => n > 0);
+}
+function segmentNotesTotal(notes) {
+  return (notes || []).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0);
+}
 function getConstClass(c) {
   if (c >= 18) return 'const-18plus';
   if (c >= 17) return 'const-17';

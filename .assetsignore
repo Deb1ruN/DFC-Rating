@@ -1,3 +1,24 @@
 images/full/
 node_modules/
 .git/
+extra/
+
+# 不需要作为静态资源上传的本地文件
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+package.json
+package-lock.json
+.netlify/
+.wrangler/
+dist/
+.env
+.env.*
+.dev.vars
+.dev.vars.*

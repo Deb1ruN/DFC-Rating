@@ -96,9 +96,7 @@ async function init() {
 
   segRenderDropdown();
   // 默认选中第一个物量完整的段位
-  const defaultPreset = SEG_PRESETS.find(p =>
-    p.notes && p.notes.every(n => n !== null && n !== undefined && Number.isInteger(n) && n > 0)
-  );
+  const defaultPreset = SEG_PRESETS.find(p => isValidSegmentNotes(p.notes));
   if (defaultPreset) segSelectPreset(defaultPreset);
   setTimeout(segUpdateCharts, 100);
 

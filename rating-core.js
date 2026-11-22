@@ -1,6 +1,6 @@
 // rating-core.js
 const TOP_N = 50;
-const VERSION = '5.6.0';
+const VERSION = '5.7.0';
 const API_BASE = 'https://phira.5wyxi.com';
 const PHIRA_WEB_USER = 'https://phira.moe/user/';
 const KEY = {
@@ -18,7 +18,8 @@ const KEY = {
   settingsGuideHints: 'dfc_rating_setting_guide_hints',
   settingsUseFullCover: 'dfc_rating_setting_use_full_cover',
   settingsConstStyle: 'dfc_rating_setting_const_style',
-  segmentDetailAccs: 'dfc_rating_segment_detail_accs_v1'
+  segmentDetailAccs: 'dfc_rating_segment_detail_accs_v1',
+  devData: 'dfc_rating_dev_data_v1'
 };
 const NO_COVER_URL = 'no-cover.png';
 const LOADING_COVER_URL = 'loading-cover.png';

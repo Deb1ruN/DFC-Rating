@@ -8,7 +8,7 @@ function getAvatarForExportSync() {
 
 function segBuildExportHTML(data) {
   if (!data.notesValid) {
-    return `<div style="color:red;font-size:20px;text-align:center;padding:50px;">⚠️ 请先输入有效的物量（正整数）</div>`;
+    return `<div style="color:red;font-size:20px;text-align:center;padding:50px;">⚠️ 请先输入有效的物量（非负整数，允许 0）</div>`;
   }
 
   const notes = segGetNotes();
@@ -18,7 +18,7 @@ function segBuildExportHTML(data) {
   const author = segSelectedPreset ? (segSelectedPreset.charter || '未知') : '自定义';
 
   let totalAcc = null;
-  if (sVals.every(v => v !== null && !isNaN(v)) && notes.every(n => n > 0)) {
+  if (sVals.every(v => v !== null && !isNaN(v)) && isValidSegmentNotes(notes)) {
     const [N1, N2, N3, N4] = notes;
     const [S1, S2, S3, S4] = sVals;
     totalAcc = (N1 * S1 + N2 * S2 + N3 * S3 + N4 * S4) / (N1 + N2 + N3 + N4);
@@ -126,7 +126,7 @@ function segBuildExportHTML(data) {
 }
 
 async function segExportImage() {
-  if (!segValidateNotes().valid) { alert('请先输入有效的物量（正整数）。'); return; }
+  if (!segValidateNotes().valid) { alert('请先输入有效的物量（非负整数，允许 0）。'); return; }
   const data = segPrepareChartData();
   if (!data.notesValid) { alert('物量无效，请检查。'); return; }
 

@@ -346,8 +346,7 @@ function renderDetailPage(item, isSegment) {
   }
 
   detailStatsTitle.textContent = isSeg ? '📊 段位数据' : '📊 谱面数据';
-  const segNotesComplete = isSeg && Array.isArray(song.notes) && song.notes.length === 4 &&
-    song.notes.every(n => n !== null && n !== undefined && Number.isInteger(n) && n > 0);
+  const segNotesComplete = isSeg && isValidSegmentNotes(song.notes);
   detailExportBtn.style.display = (!isSeg || segNotesComplete) ? 'inline-flex' : 'none';
 
   detailChartId.textContent = song.chartId != null ? String(song.chartId) : '—';

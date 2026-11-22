@@ -45,6 +45,7 @@ async function handleClearLocalData() {
 
   // 1) 清空整个 localStorage
   try { localStorage.clear(); } catch (e) { console.warn('清空 localStorage 失败:', e); }
+  if (typeof devClearAllState === 'function') devClearAllState();
 
   // 2) 写回 playerId（这是唯一要保留的）
   if (savedPlayerId) {

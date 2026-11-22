@@ -9,9 +9,58 @@ function segGetNotes() { return segNInputs.map(inp => parseInt(inp.value, 10)); 
 function segValidateNotes() {
   const notes = segGetNotes();
   for (let i = 0; i < notes.length; i++) {
-    if (isNaN(notes[i]) || notes[i] <= 0 || !Number.isInteger(notes[i])) return { valid: false, index: i };
+    if (isNaN(notes[i]) || notes[i] < 0 || !Number.isInteger(notes[i])) return { valid: false, index: i };
   }
+  if (!notes.some(n => n > 0)) return { valid: false, index: -1 };
   return { valid: true };
+}
+
+// 支持某首物量为 0：0 视为该位置没有单曲，累计 ACC 保持不变
+function segDeriveAFromS(notes, sVals) {
+  let cumNotes = 0;
+  let cumWeighted = 0;
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const n = notes[i] || 0;
+    if (n <= 0) {
+      out[i] = cumNotes > 0 ? cumWeighted / cumNotes : 0;
+      continue;
+    }
+    cumNotes += n;
+    cumWeighted += n * (Number(sVals[i]) || 0);
+    out[i] = cumWeighted / cumNotes;
+  }
+  return out;
+}
+
+function segDeriveSFromA(notes, aVals) {
+  let cumNotes = 0;
+  let cumWeighted = 0;
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const n = notes[i] || 0;
+    if (n <= 0) {
+      out[i] = 0;
+      continue;
+    }
+    const target = Number(aVals[i]) || 0;
+    const total = cumNotes + n;
+    const raw = (target * total - cumWeighted) / n;
+    out[i] = raw;
+    cumNotes = total;
+    cumWeighted += n * raw;
+  }
+  return out;
+}
+
+// 物量为 0 的位置不参与计算；累计 ACC 沿用上一首，单曲 ACC 记为 0
+function segFillZeroNoteAccs(notes, accs, mode) {
+  let prevA = 0;
+  return accs.map((v, i) => {
+    if ((notes[i] || 0) <= 0) return mode === 'A' ? prevA : 0;
+    if (mode === 'A' && !isNaN(v)) prevA = v;
+    return v;
+  });
 }
 function segGetAccs(arr) { return arr.map(inp => parseFloat(inp.value)); }
 function segValidateAccs(accs) {
@@ -80,7 +129,7 @@ function segSelectPreset(preset) {
   if (preset.notes) {
     segSetNotesValues(preset.notes);
     // 物量完整才禁用；缺失时允许用户手动补全
-    const allComplete = preset.notes.every(n => n !== null && n !== undefined && Number.isInteger(n) && n > 0);
+    const allComplete = isValidSegmentNotes(preset.notes);
     segSetNotesDisabled(allComplete);
   }
   segShowInfo(preset);
@@ -126,44 +175,38 @@ function segComputeReverse() {
   const notesValid = segValidateNotes();
   if (!notesValid.valid) return { ok: false, error: 'notes', index: notesValid.index };
 
-  const accs = segGetAccs(segAInputs);
+  const accs = segFillZeroNoteAccs(notes, segGetAccs(segAInputs), 'A');
   if (!segValidateAccs(accs)) return { ok: false, error: 'acc' };
 
   const [N1, N2, N3, N4] = notes;
   const [A1, A2, A3, A4] = accs;
 
-  let S1, S2, S3, S4;
-  try {
-    S1 = A1;
-    S2 = (A2 * (N1 + N2) - N1 * S1) / N2;
-    S3 = (A3 * (N1 + N2 + N3) - N1 * S1 - N2 * S2) / N3;
-    S4 = (A4 * (N1 + N2 + N3 + N4) - N1 * S1 - N2 * S2 - N3 * S3) / N4;
-  } catch (e) {
-    return { ok: false, error: 'calc' };
-  }
-
+  const rawS = segDeriveSFromA(notes, accs);
   const clamp = (v) => Math.min(100, Math.max(0, v));
-  const S = [clamp(S1), clamp(S2), clamp(S3), clamp(S4)];
+  const S = rawS.map(clamp);
+  const calcA = segDeriveAFromS(notes, S);
 
-  const calcA2 = (N1 * S[0] + N2 * S[1]) / (N1 + N2);
-  const calcA3 = (N1 * S[0] + N2 * S[1] + N3 * S[2]) / (N1 + N2 + N3);
-  const calcA4 = (N1 * S[0] + N2 * S[1] + N3 * S[2] + N4 * S[3]) / (N1 + N2 + N3 + N4);
-
-  const diff2 = Math.abs(calcA2 - A2);
-  const diff3 = Math.abs(calcA3 - A3);
-  const diff4 = Math.abs(calcA4 - A4);
+  const diff2 = Math.abs(calcA[1] - A2);
+  const diff3 = Math.abs(calcA[2] - A3);
+  const diff4 = Math.abs(calcA[3] - A4);
   const eps = 0.01;
   const allOk = diff2 <= eps && diff3 <= eps && diff4 <= eps;
-  const rawOut = [S1, S2, S3, S4].some(v => v < -0.5 || v > 100.5);
+  const rawOut = rawS.some(v => v < -0.5 || v > 100.5);
 
-  return { ok: true, S, calcA2, calcA3, calcA4, diff2, diff3, diff4, eps, allOk, rawOut };
+  return {
+    ok: true, S,
+    calcA2: calcA[1], calcA3: calcA[2], calcA4: calcA[3],
+    diff2, diff3, diff4, eps, allOk, rawOut
+  };
 }
 
 function segReverseDerive() {
   const r = segComputeReverse();
   if (!r.ok) {
     if (r.error === 'notes') {
-      segResultReverse.innerHTML = `<div class="validation err">❌ 第 ${r.index+1} 个物量无效，请输入正整数。</div>`;
+      segResultReverse.innerHTML = r.index >= 0
+        ? `<div class="validation err">❌ 第 ${r.index+1} 个物量无效，请输入非负整数（允许 0）。</div>`
+        : '<div class="validation err">❌ 至少需要一首单曲的物量大于 0。</div>';
     } else if (r.error === 'acc') {
       segResultReverse.innerHTML = `<div class="validation err">❌ 请确保所有ACC在 0~100 之间。</div>`;
     } else {
@@ -196,7 +239,7 @@ function segForwardSynthesize() {
     segUpdateCharts();
     return;
   }
-  const accs = segGetAccs(segSInputs);
+  const accs = segFillZeroNoteAccs(notes, segGetAccs(segSInputs), 'S');
   if (!segValidateAccs(accs)) {
     segResultForward.innerHTML = `<div class="validation err">❌ 请确保单曲ACC在 0~100 之间。</div>`;
     segUpdateCharts();
@@ -309,8 +352,8 @@ segResetBtn.addEventListener('click', segResetAll);
 // 段位图表
 function segPrepareChartData() {
   const notes = segGetNotes();
-  const aVals = segGetAccs(segAInputs);
-  const sVals = segGetAccs(segSInputs);
+  const aVals = segFillZeroNoteAccs(notes, segGetAccs(segAInputs), 'A');
+  const sVals = segFillZeroNoteAccs(notes, segGetAccs(segSInputs), 'S');
   const hasA = aVals.every(v => !isNaN(v)) && segValidateAccs(aVals);
   const hasS = sVals.every(v => !isNaN(v)) && segValidateAccs(sVals);
   const notesValid = segValidateNotes().valid;
@@ -320,27 +363,17 @@ function segPrepareChartData() {
 
   if (hasA) aData = aVals.slice();
   else if (hasS && notesValid) {
-    const [N1, N2, N3, N4] = notes;
-    const [S1, S2, S3, S4] = sVals;
-    aData = [
-      S1,
-      (N1 * S1 + N2 * S2) / (N1 + N2),
-      (N1 * S1 + N2 * S2 + N3 * S3) / (N1 + N2 + N3),
-      (N1 * S1 + N2 * S2 + N3 * S3 + N4 * S4) / (N1 + N2 + N3 + N4)
-    ];
+    aData = segDeriveAFromS(notes, sVals);
   }
 
   if (hasS) sData = sVals.slice();
   else if (hasA && notesValid) {
-    const [N1, N2, N3, N4] = notes;
-    const [A1, A2, A3, A4] = aVals;
-    try {
-      const S1 = A1;
-      const S2 = (A2 * (N1 + N2) - N1 * S1) / N2;
-      const S3 = (A3 * (N1 + N2 + N3) - N1 * S1 - N2 * S2) / N3;
-      const S4 = (A4 * (N1 + N2 + N3 + N4) - N1 * S1 - N2 * S2 - N3 * S3) / N4;
-      sData = [S1, S2, S3, S4].map(v => Math.min(100, Math.max(0, v)));
-    } catch (e) {}
+    sData = segDeriveSFromA(notes, aVals).map(v => Math.min(100, Math.max(0, v)));
+  }
+
+  // 物量为 0 的位置没有实际单曲，单曲 ACC 不参与图表
+  for (let i = 0; i < 4; i++) {
+    if ((notes[i] || 0) <= 0) sData[i] = 0;
   }
 
   const allVals = [];

@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.6.0</title>
+<title>DFC Rating计算 · v5.7.0</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -18,6 +18,7 @@
       <button class="nav-btn" data-page="single">单曲计算</button>
       <button class="nav-btn" data-page="segment">段位计算</button>
       <button class="nav-btn" data-page="player">玩家</button>
+      <button class="nav-btn" data-page="dev">开发者选项</button>
     </nav>
   </div>
   <div class="nav-right">
@@ -314,7 +315,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.6.0</span>
+      <span class="badge">v5.7.0</span>
     </div>
 
     <div class="benchmark-section">
@@ -412,10 +413,10 @@
       </div>
 
       <div class="seg-notes-group">
-        <div class="field"><label>N₁</label><input type="number" id="segN1" value="1200" step="1" min="1" /></div>
-        <div class="field"><label>N₂</label><input type="number" id="segN2" value="1100" step="1" min="1" /></div>
-        <div class="field"><label>N₃</label><input type="number" id="segN3" value="1300" step="1" min="1" /></div>
-        <div class="field"><label>N₄</label><input type="number" id="segN4" value="1050" step="1" min="1" /></div>
+        <div class="field"><label>N₁</label><input type="number" id="segN1" value="1200" step="1" min="0" /></div>
+        <div class="field"><label>N₂</label><input type="number" id="segN2" value="1100" step="1" min="0" /></div>
+        <div class="field"><label>N₃</label><input type="number" id="segN3" value="1300" step="1" min="0" /></div>
+        <div class="field"><label>N₄</label><input type="number" id="segN4" value="1050" step="1" min="0" /></div>
       </div>
 
       <div class="seg-info-row hidden" id="segInfoRow">
@@ -426,6 +427,7 @@
         </div>
         <div class="author-info">谱师：<span class="author-name" id="segAuthorName">--</span></div>
       </div>
+      <div class="seg-notes-hint">物量允许为 0；例如仅三首单曲的段位，第四首填 0 即可。</div>
     </div>
 
     <div class="seg-cards">
@@ -567,9 +569,164 @@
       </div>
     </div>
   </section>
+
+  <!-- 开发者选项 -->
+  <section class="page" data-page="dev">
+    <div class="dev-header">
+      <div>
+        <h2>🧰 开发者选项</h2>
+        <p class="dev-subtitle">可视化维护 data-songs.js / data-segments.js。修改只保存在当前浏览器，原始数据文件不会被直接覆盖。</p>
+      </div>
+      <span class="dev-local-badge">LOCAL ONLY</span>
+    </div>
+
+    <div class="dev-notice">
+      <span>💡</span>
+      <span>新增数据会置顶显示。完成编辑后，点击对应的「导出」按钮下载新的 JS 文件，用它替换网站原文件即可生效。替换后请点击「恢复原始数据」清空本地开发者记录，避免下次重复叠加。</span>
+    </div>
+
+    <div class="dev-tabs">
+      <button class="dev-tab active" data-dev-tab="songs">🎵 谱面数据</button>
+      <button class="dev-tab" data-dev-tab="segments">🎯 段位数据</button>
+    </div>
+
+    <div class="dev-panel" data-dev-panel="songs">
+      <div class="dev-toolbar">
+        <div class="dev-toolbar-actions">
+          <button class="btn btn-primary" id="devAddSongBtn">＋ 新增谱面</button>
+          <button class="btn btn-success" id="devExportSongBtn">⬇ 导出 data-songs.js</button>
+          <button class="btn btn-outline" id="devResetSongBtn">↺ 恢复原始数据</button>
+        </div>
+        <span class="dev-count" id="devSongCount">—</span>
+      </div>
+      <div class="dev-search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="devSongSearch" placeholder="搜索曲名或 Phira ID..." autocomplete="off" />
+      </div>
+      <div class="dev-list" id="devSongList"></div>
+    </div>
+
+    <div class="dev-panel" data-dev-panel="segments" hidden>
+      <div class="dev-toolbar">
+        <div class="dev-toolbar-actions">
+          <button class="btn btn-primary" id="devAddSegmentBtn">＋ 新增段位</button>
+          <button class="btn btn-success" id="devExportSegmentBtn">⬇ 导出 data-segments.js</button>
+          <button class="btn btn-outline" id="devResetSegmentBtn">↺ 恢复原始数据</button>
+        </div>
+        <span class="dev-count" id="devSegmentCount">—</span>
+      </div>
+      <div class="dev-search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="devSegmentSearch" placeholder="搜索段位名、谱师或 Phira ID..." autocomplete="off" />
+      </div>
+      <div class="dev-list" id="devSegmentList"></div>
+    </div>
+  </section>
 </main>
 
 <div id="exportContainer"></div>
+
+<!-- 开发者选项：新增数据弹窗 -->
+<div class="dev-modal-overlay" id="devModal" hidden>
+  <div class="dev-modal" role="dialog" aria-modal="true" aria-labelledby="devModalTitle">
+    <div class="dev-modal-header">
+      <h3 id="devModalTitle">新增谱面</h3>
+      <button class="dev-modal-close" id="devModalClose" type="button" aria-label="关闭">×</button>
+    </div>
+
+    <form id="devForm" novalidate>
+      <div id="devSongFields">
+        <label class="dev-field">
+          <span>曲名 <b>*</b></span>
+          <input type="text" id="devSongName" maxlength="200" placeholder="例如：Stalemate" autocomplete="off" />
+        </label>
+        <div class="dev-field-grid">
+          <label class="dev-field">
+            <span>定数 <b>*</b></span>
+            <input type="number" id="devSongConstant" step="any" min="0" placeholder="例如：18.6" />
+          </label>
+          <label class="dev-field">
+            <span>Phira ID</span>
+            <input type="text" id="devSongChartId" inputmode="numeric" placeholder="留空或非法自动为 null" autocomplete="off" />
+          </label>
+        </div>
+        <div class="dev-field-grid dev-ratio-grid">
+          <label class="dev-field">
+            <span>总物量</span>
+            <input type="number" id="devSongTotal" step="1" min="0" placeholder="用于计算占比" />
+          </label>
+          <label class="dev-field">
+            <span>黄键数量</span>
+            <input type="number" id="devSongYellow" step="1" min="0" placeholder="用于计算占比" />
+          </label>
+          <label class="dev-field">
+            <span>黄键占比 (%) <b>*</b></span>
+            <input type="number" id="devSongRatio" step="any" min="0" max="100" placeholder="可手动填写或计算" />
+          </label>
+        </div>
+        <div class="dev-calc-row">
+          <button type="button" class="btn btn-outline btn-sm" id="devSongCalcRatio">🧮 用总物量/黄键数计算占比</button>
+          <span class="dev-field-hint">总物量与黄键数只用于计算，不写入谱面数据。</span>
+        </div>
+      </div>
+
+      <div id="devSegmentFields" hidden>
+        <div class="dev-field-grid">
+          <label class="dev-field">
+            <span>段位名称 <b>*</b></span>
+            <input type="text" id="devSegName" maxlength="100" placeholder="例如：Sample 7" autocomplete="off" />
+          </label>
+          <label class="dev-field">
+            <span>谱师 <b>*</b></span>
+            <input type="text" id="devSegCharter" maxlength="200" placeholder="例如：Jiuwenzi" autocomplete="off" />
+          </label>
+        </div>
+        <div class="dev-field-grid">
+          <label class="dev-field">
+            <span>段位难度 <b>*</b></span>
+            <input type="number" id="devSegDifficulty" step="any" min="0" placeholder="例如：13.45" />
+          </label>
+          <label class="dev-field">
+            <span>Phira ID</span>
+            <input type="text" id="devSegChartId" inputmode="numeric" placeholder="留空或非法自动为 null" autocomplete="off" />
+          </label>
+        </div>
+        <div class="dev-field-label">四首单曲物量 <b>*</b><span class="dev-field-hint">允许 0（例如三首段位的第四首填 0）</span></div>
+        <div class="dev-notes-grid">
+          <label class="dev-field"><span>N₁</span><input type="number" id="devSegN1" step="1" min="0" value="0" /></label>
+          <label class="dev-field"><span>N₂</span><input type="number" id="devSegN2" step="1" min="0" value="0" /></label>
+          <label class="dev-field"><span>N₃</span><input type="number" id="devSegN3" step="1" min="0" value="0" /></label>
+          <label class="dev-field"><span>N₄</span><input type="number" id="devSegN4" step="1" min="0" value="0" /></label>
+        </div>
+        <div class="dev-field-grid dev-ratio-grid">
+          <label class="dev-field">
+            <span>总物量</span>
+            <input type="number" id="devSegTotal" step="1" readonly placeholder="自动求和" />
+          </label>
+          <label class="dev-field">
+            <span>黄键数量</span>
+            <input type="number" id="devSegYellow" step="1" min="0" placeholder="用于计算占比" />
+          </label>
+          <label class="dev-field">
+            <span>黄键占比 (%) <b>*</b></span>
+            <input type="number" id="devSegRatio" step="any" min="0" max="100" placeholder="可手动填写或计算" />
+          </label>
+        </div>
+        <div class="dev-calc-row">
+          <button type="button" class="btn btn-outline btn-sm" id="devSegCalcRatio">🧮 用总物量/黄键数计算占比</button>
+          <span class="dev-field-hint">总物量由四首单曲物量自动求和。</span>
+        </div>
+      </div>
+
+      <div class="dev-form-error" id="devFormError" role="alert"></div>
+      <div class="dev-modal-actions">
+        <button type="button" class="btn btn-outline" id="devModalCancel">取消</button>
+        <button type="submit" class="btn btn-primary" id="devFormSubmit">添加到数据</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="data-songs.js" defer></script>
 <script src="data-segments.js" defer></script>
 <script src="rating-core.js" defer></script>
@@ -587,6 +744,7 @@
 <script src="app/segment.js" defer></script>
 <script src="app/segment-export.js" defer></script>
 <script src="app/segment-detail.js" defer></script>
+<script src="app/dev-tools.js" defer></script>
 <script src="app/player-page.js" defer></script>
 <script src="app/init.js" defer></script>
 </body>

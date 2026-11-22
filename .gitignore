@@ -2,3 +2,24 @@ node_modules/
 package.json
 package-lock.json
 extra/
+images/full/
+
+# 编辑器与系统临时文件
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# 本地部署/构建产物与环境变量
+.netlify/
+.wrangler/
+dist/
+.env
+.env.*
+.dev.vars
+.dev.vars.*

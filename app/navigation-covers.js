@@ -11,6 +11,7 @@ function switchPage(name) {
   if (name === 'preview') renderPreview();
   if (name === 'main') updateDisplay();
   if (name === 'segment') segUpdateCharts();
+  if (name === 'dev' && typeof devInit === 'function') devInit();
   if (name !== 'detail') {
     // 离开详情页时清空当前谱面记录
     detailCurrentSong = null;

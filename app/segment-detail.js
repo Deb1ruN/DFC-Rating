@@ -12,7 +12,7 @@ function detailSegNotes() {
 }
 
 function detailSegNotesValid(notes) {
-  return notes.length === 4 && notes.every(n => Number.isInteger(n) && n > 0);
+  return isValidSegmentNotes(notes);
 }
 
 function detailSegGetAccs(inputs) {
@@ -26,61 +26,35 @@ function detailSegAccsValid(accs) {
 function detailSegComputeReverse() {
   const notes = detailSegNotes();
   if (!detailSegNotesValid(notes)) return { ok: false, error: 'notes' };
-  const accs = detailSegGetAccs(detailSegAInputs);
+  const accs = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegAInputs), 'A');
   if (!detailSegAccsValid(accs)) return { ok: false, error: 'acc' };
 
-  const [N1, N2, N3, N4] = notes;
-  const [A1, A2, A3, A4] = accs;
-  let S1, S2, S3, S4;
-  try {
-    S1 = A1;
-    S2 = (A2 * (N1 + N2) - N1 * S1) / N2;
-    S3 = (A3 * (N1 + N2 + N3) - N1 * S1 - N2 * S2) / N3;
-    S4 = (A4 * (N1 + N2 + N3 + N4) - N1 * S1 - N2 * S2 - N3 * S3) / N4;
-  } catch (e) {
-    return { ok: false, error: 'calc' };
-  }
-
+  const rawS = segDeriveSFromA(notes, accs);
   const clamp = v => Math.min(100, Math.max(0, v));
-  const S = [clamp(S1), clamp(S2), clamp(S3), clamp(S4)];
-  const calcA2 = (N1 * S[0] + N2 * S[1]) / (N1 + N2);
-  const calcA3 = (N1 * S[0] + N2 * S[1] + N3 * S[2]) / (N1 + N2 + N3);
-  const calcA4 = (N1 * S[0] + N2 * S[1] + N3 * S[2] + N4 * S[3]) / (N1 + N2 + N3 + N4);
-  const diff2 = Math.abs(calcA2 - A2);
-  const diff3 = Math.abs(calcA3 - A3);
-  const diff4 = Math.abs(calcA4 - A4);
+  const S = rawS.map(clamp);
+  const calcA = segDeriveAFromS(notes, S);
+  const diff2 = Math.abs(calcA[1] - accs[1]);
+  const diff3 = Math.abs(calcA[2] - accs[2]);
+  const diff4 = Math.abs(calcA[3] - accs[3]);
   const eps = 0.01;
   const allOk = diff2 <= eps && diff3 <= eps && diff4 <= eps;
-  const rawOut = [S1, S2, S3, S4].some(v => v < -0.5 || v > 100.5);
+  const rawOut = rawS.some(v => v < -0.5 || v > 100.5);
 
-  return { ok: true, S, calcA2, calcA3, calcA4, diff2, diff3, diff4, eps, allOk, rawOut };
+  return { ok: true, S, calcA2: calcA[1], calcA3: calcA[2], calcA4: calcA[3], diff2, diff3, diff4, eps, allOk, rawOut };
 }
 
 function detailSegDeriveA(notes, sVals) {
-  const [N1, N2, N3, N4] = notes;
-  const [S1, S2, S3, S4] = sVals;
-  return [
-    S1,
-    (N1 * S1 + N2 * S2) / (N1 + N2),
-    (N1 * S1 + N2 * S2 + N3 * S3) / (N1 + N2 + N3),
-    (N1 * S1 + N2 * S2 + N3 * S3 + N4 * S4) / (N1 + N2 + N3 + N4)
-  ];
+  return segDeriveAFromS(notes, sVals);
 }
 
 function detailSegDeriveS(notes, aVals) {
-  const [N1, N2, N3, N4] = notes;
-  const [A1, A2, A3, A4] = aVals;
-  const S1 = A1;
-  const S2 = (A2 * (N1 + N2) - N1 * S1) / N2;
-  const S3 = (A3 * (N1 + N2 + N3) - N1 * S1 - N2 * S2) / N3;
-  const S4 = (A4 * (N1 + N2 + N3 + N4) - N1 * S1 - N2 * S2 - N3 * S3) / N4;
-  return [S1, S2, S3, S4].map(v => Math.min(100, Math.max(0, v)));
+  return segDeriveSFromA(notes, aVals).map(v => Math.min(100, Math.max(0, v)));
 }
 
 function detailSegComputeCumulativeFromS() {
   const notes = detailSegNotes();
   if (!detailSegNotesValid(notes)) return { ok: false };
-  const sVals = detailSegGetAccs(detailSegSInputs);
+  const sVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegSInputs), 'S');
   if (!detailSegAccsValid(sVals)) return { ok: false };
   return { ok: true, A: detailSegDeriveA(notes, sVals) };
 }
@@ -88,8 +62,8 @@ function detailSegComputeCumulativeFromS() {
 function detailSegChartData() {
   const notes = detailSegNotes();
   const notesValid = detailSegNotesValid(notes);
-  const aVals = detailSegGetAccs(detailSegAInputs);
-  const sVals = detailSegGetAccs(detailSegSInputs);
+  const aVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegAInputs), 'A');
+  const sVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegSInputs), 'S');
   const hasA = notesValid && detailSegAccsValid(aVals);
   const hasS = notesValid && detailSegAccsValid(sVals);
 
@@ -99,6 +73,11 @@ function detailSegChartData() {
 
   if (hasA && !hasS) sData = detailSegDeriveS(notes, aVals);
   else if (hasS && !hasA) aData = detailSegDeriveA(notes, sVals);
+
+  // 物量为 0 的位置没有实际单曲，单曲 ACC 不参与图表
+  for (let i = 0; i < 4; i++) {
+    if ((notes[i] || 0) <= 0) sData[i] = 0;
+  }
 
   const allVals = [];
   aData.forEach(v => { if (v !== null && !isNaN(v)) allVals.push(v); });
@@ -198,7 +177,7 @@ function detailSegForward() {
     detailSegUpdateChart();
     return;
   }
-  const accs = detailSegGetAccs(detailSegSInputs);
+  const accs = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegSInputs), 'S');
   if (!detailSegAccsValid(accs)) {
     detailSegResultForward.innerHTML = '<div class="validation err">❌ 请确保单曲 ACC 在 0~100 之间。</div>';
     detailSegUpdateChart();
@@ -264,7 +243,7 @@ function detailSegSyncPageMeter() {
   let playerAcc = (!isNaN(raw) && raw >= 0 && raw <= 100) ? raw : null;
   if (playerAcc === null) {
     const notes = detailSegNotes();
-    const sVals = detailSegGetAccs(detailSegSInputs);
+    const sVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegSInputs), 'S');
     if (detailSegNotesValid(notes) && detailSegAccsValid(sVals)) {
       playerAcc = detailSegDeriveA(notes, sVals)[3];
     }
@@ -359,8 +338,8 @@ detailSegAInputs[3].addEventListener('input', detailSegSyncPageMeter);
 // ============================================================
 function detailSegExportData() {
   const notes = detailSegNotes();
-  const aVals = detailSegGetAccs(detailSegAInputs);
-  const sVals = detailSegGetAccs(detailSegSInputs);
+  const aVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegAInputs), 'A');
+  const sVals = segFillZeroNoteAccs(notes, detailSegGetAccs(detailSegSInputs), 'S');
   const notesValid = detailSegNotesValid(notes);
   const hasA = notesValid && detailSegAccsValid(aVals);
   const hasS = notesValid && detailSegAccsValid(sVals);
@@ -370,6 +349,11 @@ function detailSegExportData() {
   let sData = sVals.map(toValid);
   if (hasA && !hasS) sData = detailSegDeriveS(notes, aVals);
   else if (hasS && !hasA) aData = detailSegDeriveA(notes, sVals);
+
+  // 物量为 0 的位置没有实际单曲
+  for (let i = 0; i < 4; i++) {
+    if ((notes[i] || 0) <= 0) sData[i] = 0;
+  }
 
   const playerAcc = (aData[3] !== null && !isNaN(aData[3])) ? aData[3] : null;
 
