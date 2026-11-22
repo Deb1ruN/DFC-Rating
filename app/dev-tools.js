@@ -2,6 +2,8 @@
 // 开发者选项：可视化维护 data-songs.js / data-segments.js
 // 修改只写入浏览器本地，并通过导出按钮生成可替换的 JS 文件。
 
+const DEV_PARTIAL_HEADER = 'DFC-DEV-SONGS/1';
+
 const DEV_SONG_ORIGINALS = SONG_DATA.map((song, index) => ({
   ...song,
   _devSource: 'original',
@@ -128,14 +130,19 @@ function devSaveState() {
 function devGetSongs() {
   const deleted = new Set(devState.songs.deleted);
   const edits = devState.songs.edits || {};
-  const customs = devState.songs.custom.map(song => ({ ...song, _devSource: 'custom', _devEdited: false }));
+  const customs = devState.songs.custom.map(song => ({
+    ...song,
+    _devSource: 'custom',
+    _devEdited: false,
+    _devRowKey: 'c:' + song._devId
+  }));
   const originals = DEV_SONG_ORIGINALS
     .filter(song => !deleted.has(song.internalId))
     .map(song => {
       const edit = edits[song.internalId];
       return edit
-        ? { ...song, ...edit, _devSource: 'original', _devEdited: true }
-        : { ...song, _devSource: 'original', _devEdited: false };
+        ? { ...song, ...edit, _devSource: 'original', _devEdited: true, _devRowKey: 'o:' + song.internalId }
+        : { ...song, _devSource: 'original', _devEdited: false, _devRowKey: 'o:' + song.internalId };
     });
   return [...customs, ...originals];
 }
@@ -153,6 +160,121 @@ function devGetSegments() {
         : { ...seg, _devSource: 'original', _devEdited: false };
     });
   return [...customs, ...originals];
+}
+
+function devSongFields(song) {
+  return {
+    name: String(song.name || '').trim(),
+    constant: Number(song.constant),
+    chartId: devChartId(song.chartId),
+    yellowRatio: Number(song.yellowRatio) || 0
+  };
+}
+
+function devSongRef(song) {
+  return devSongFields(song);
+}
+
+function devChartId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function devNormalizeName(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function devSongsExactlyEqual(a, b) {
+  return devChartId(a.chartId) === devChartId(b.chartId) &&
+    String(a.name || '').trim() === String(b.name || '').trim() &&
+    Math.abs(Number(a.constant) - Number(b.constant)) < 1e-9 &&
+    Math.abs(Number(a.yellowRatio) - Number(b.yellowRatio)) < 1e-12;
+}
+
+function devSongView() {
+  const all = devGetSongs();
+  all.forEach(song => {
+    song._devDuplicate = false;
+    song._devDuplicateLabel = '';
+  });
+
+  let duplicateGroups = 0;
+  const markGroup = (list, label) => {
+    const hasNew = list.some(song => !song._devDuplicate);
+    list.forEach(song => {
+      song._devDuplicate = true;
+      song._devDuplicateLabel = label;
+      song._devDuplicateCount = list.length;
+    });
+    if (hasNew) duplicateGroups++;
+  };
+
+  // Phira ID 是首要唯一键
+  const idGroups = new Map();
+  all.forEach(song => {
+    const chartId = devChartId(song.chartId);
+    if (chartId === null) return;
+    if (!idGroups.has(chartId)) idGroups.set(chartId, []);
+    idGroups.get(chartId).push(song);
+  });
+  idGroups.forEach((list, chartId) => {
+    if (list.length > 1) markGroup(list, `Phira ID ${chartId}`);
+  });
+
+  // 没有 Phira ID 的条目退化为“同名 + 同定数”判断
+  const nameGroups = new Map();
+  all.forEach(song => {
+    const key = `${devNormalizeName(song.name)}|${Number(song.constant)}`;
+    if (!nameGroups.has(key)) nameGroups.set(key, []);
+    nameGroups.get(key).push(song);
+  });
+  nameGroups.forEach(list => {
+    if (list.length < 2) return;
+    const hasNullId = list.some(song => devChartId(song.chartId) === null);
+    if (!hasNullId) return;
+    markGroup(list, '同名同定数');
+  });
+
+  const duplicates = all.filter(song => song._devDuplicate);
+  const rest = all.filter(song => !song._devDuplicate);
+  const ordered = [
+    ...duplicates,
+    ...rest.filter(song => song._devSource === 'custom'),
+    ...rest.filter(song => song._devSource !== 'custom')
+  ];
+  return { all, ordered, duplicates, duplicateGroups };
+}
+
+function devFindOriginalSong(ref) {
+  if (!ref) return null;
+  const chartId = devChartId(ref.chartId);
+  if (chartId !== null) {
+    const byId = DEV_SONG_ORIGINALS.find(song => devChartId(song.chartId) === chartId);
+    if (byId) return byId;
+  }
+  const name = devNormalizeName(ref.name);
+  const constant = Number(ref.constant);
+  if (!name || !Number.isFinite(constant)) return null;
+  return DEV_SONG_ORIGINALS.find(song =>
+    devNormalizeName(song.name) === name && Math.abs(Number(song.constant) - constant) < 1e-9
+  );
+}
+
+function devFindCustomSong(ref) {
+  if (!ref) return null;
+  const chartId = devChartId(ref.chartId);
+  const name = devNormalizeName(ref.name);
+  const constant = Number(ref.constant);
+  return devState.songs.custom.find(song => {
+    if (chartId !== null && devChartId(song.chartId) === chartId) return true;
+    return name && Number.isFinite(constant) &&
+      devNormalizeName(song.name) === name && Math.abs(Number(song.constant) - constant) < 1e-9;
+  }) || null;
+}
+
+function devFindCurrentSongExact(song) {
+  return devGetSongs().some(existing => devSongsExactlyEqual(existing, song));
 }
 
 function devNumber(value, digits = 2) {
@@ -177,22 +299,25 @@ function devNotesText(notes) {
 function devSongCard(song) {
   const isNew = song._devSource === 'custom';
   const isEdited = !!song._devEdited;
+  const isDuplicate = !!song._devDuplicate;
   const accent = getConstColor(Number(song.constant));
   const key = isNew ? song._devId : song.internalId;
   const badgeClass = isNew ? 'new' : (isEdited ? 'edited' : 'original');
   const badgeText = isNew ? '新增' : (isEdited ? '已修改' : '原有');
   return `
-    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''}" style="--dev-accent:${accent};">
+    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''} ${isDuplicate ? 'is-duplicate' : ''}" style="--dev-accent:${accent};">
       ${artBoxHtml(song.chartId || '')}
       <div class="dev-item-main">
         <div class="dev-item-title">
           <span class="dev-item-name" title="${escapeHtml(song.name)}">${escapeHtml(song.name)}</span>
           <span class="dev-badge ${badgeClass}">${badgeText}</span>
+          ${isDuplicate ? '<span class="dev-badge duplicate">重复</span>' : ''}
         </div>
         <div class="dev-item-meta">
           定数 <b>${devNumber(song.constant, 2)}</b>
           · Phira ID <b>${song.chartId != null ? song.chartId : 'null'}</b>
           · 黄键占比 <b>${devPercent(song.yellowRatio)}</b>
+          ${isDuplicate ? ` · <span class="dev-dup-meta">⚠️ 重复：${escapeHtml(song._devDuplicateLabel || '')}</span>` : ''}
         </div>
       </div>
       <div class="dev-item-actions">
@@ -240,15 +365,26 @@ function devObserveCovers(container) {
 function devRenderSongs() {
   const list = $('devSongList');
   if (!list) return;
-  const all = devGetSongs();
+  const view = devSongView();
+  const all = view.all;
   const q = ($('devSongSearch')?.value || '').trim().toLowerCase();
+  const source = view.ordered;
   const items = q
-    ? all.filter(s => String(s.name || '').toLowerCase().includes(q) || String(s.chartId || '').includes(q))
-    : all;
+    ? source.filter(s => String(s.name || '').toLowerCase().includes(q) || String(s.chartId || '').includes(q))
+    : source;
 
   const deletedCount = DEV_SONG_ORIGINALS.length - (all.length - devState.songs.custom.length);
   const editedCount = Object.keys(devState.songs.edits || {}).length;
-  $('devSongCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.songs.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}`;
+  const duplicateCount = view.duplicates.length;
+  $('devSongCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.songs.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}${duplicateCount ? ` · 重复 ${duplicateCount}` : ''}`;
+
+  const hint = $('devSongDuplicateHint');
+  if (hint) {
+    hint.hidden = duplicateCount === 0;
+    hint.textContent = duplicateCount
+      ? `⚠️ 检测到 ${duplicateCount} 条重复谱面（${view.duplicateGroups} 组）。Phira ID 不能重复，重复项已置顶标记，请优先修改 Phira ID，或删除多余条目。`
+      : '';
+  }
 
   if (items.length === 0) {
     list.innerHTML = `<div class="dev-empty">${q ? '没有匹配的谱面' : '暂无谱面数据'}</div>`;
@@ -688,6 +824,236 @@ function devExportSegments() {
   devToast('已导出 data-segments.js；替换原文件后请恢复原始数据');
 }
 
+// ================= 部分导出 / 导入修改（仅谱面数据） =================
+function devBuildPartialPayload() {
+  const added = devState.songs.custom.map(song => devSongFields(song));
+
+  const deleted = [];
+  devState.songs.deleted.forEach(id => {
+    const original = DEV_SONG_ORIGINALS.find(song => song.internalId === id);
+    if (original) deleted.push(devSongRef(original));
+  });
+
+  const edited = [];
+  Object.entries(devState.songs.edits || {}).forEach(([id, to]) => {
+    const original = DEV_SONG_ORIGINALS.find(song => song.internalId === id);
+    if (original) edited.push({ from: devSongRef(original), to: devSongFields(to) });
+  });
+
+  return { added, deleted, edited };
+}
+
+async function devCopyText(text) {
+  try {
+    if (navigator.clipboard && (!window.isSecureContext || window.isSecureContext === true)) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) {}
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function devPartialExport() {
+  const payload = devBuildPartialPayload();
+  const total = payload.added.length + payload.deleted.length + payload.edited.length;
+  if (total === 0) {
+    devToast('当前没有谱面修改可导出');
+    return;
+  }
+
+  const text = `${DEV_PARTIAL_HEADER}\n${JSON.stringify(payload)}`;
+  const ok = await devCopyText(text);
+  if (ok) {
+    devToast(`已复制 ${total} 条谱面修改，可直接发送给其他设备`);
+  } else {
+    window.prompt('自动复制失败，请手动复制以下内容：', text);
+  }
+}
+
+function devParseSongFull(raw, label) {
+  if (!raw || typeof raw !== 'object') throw new Error(`${label}格式错误。`);
+  const ratio = Number(raw.yellowRatio);
+  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+    throw new Error(`${label}黄键占比无效。`);
+  }
+  const song = devSongFields(raw);
+  song.yellowRatio = ratio;
+  if (!song.name) throw new Error(`${label}缺少曲名。`);
+  if (!Number.isFinite(song.constant) || song.constant <= 0) throw new Error(`${label}定数无效。`);
+  return song;
+}
+
+function devParseSongRef(raw, label) {
+  if (!raw || typeof raw !== 'object') throw new Error(`${label}格式错误。`);
+  const ref = {
+    name: String(raw.name || '').trim(),
+    constant: Number(raw.constant),
+    chartId: devChartId(raw.chartId)
+  };
+  if (!ref.name && ref.chartId === null) throw new Error(`${label}缺少曲名或 Phira ID。`);
+  return ref;
+}
+
+function devParsePartialText(text) {
+  let raw = String(text || '').trim();
+  if (!raw) throw new Error('请先粘贴修改文本。');
+
+  if (raw.startsWith(DEV_PARTIAL_HEADER)) {
+    raw = raw.slice(DEV_PARTIAL_HEADER.length).trim();
+  } else if (raw.startsWith('DFC-DEV-SONGS')) {
+    const nl = raw.indexOf('\n');
+    if (nl !== -1) raw = raw.slice(nl + 1).trim();
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('无法识别文本，请确认复制的是「部分导出」内容。');
+  }
+  if (!data || typeof data !== 'object') throw new Error('修改文本格式错误。');
+
+  const added = Array.isArray(data.added) ? data.added.map((item, i) => devParseSongFull(item, `新增第 ${i + 1} 条`)) : [];
+  const deleted = Array.isArray(data.deleted) ? data.deleted.map((item, i) => devParseSongRef(item, `删除第 ${i + 1} 条`)) : [];
+  const edited = Array.isArray(data.edited) ? data.edited.map((item, i) => {
+    if (!item || typeof item !== 'object') throw new Error(`修改第 ${i + 1} 条格式错误。`);
+    return {
+      from: devParseSongRef(item.from, `修改第 ${i + 1} 条原数据`),
+      to: devParseSongFull(item.to, `修改第 ${i + 1} 条新数据`)
+    };
+  }) : [];
+
+  if (added.length === 0 && deleted.length === 0 && edited.length === 0) {
+    throw new Error('文本中没有可应用的谱面修改。');
+  }
+  return { added, deleted, edited };
+}
+
+function devApplyPartialImport(text) {
+  const data = devParsePartialText(text);
+  const summary = { added: 0, deleted: 0, edited: 0, addedAsNew: 0, skipped: 0, missing: 0 };
+
+  data.added.forEach(song => {
+    if (devFindCurrentSongExact(song)) {
+      summary.skipped++;
+      return;
+    }
+    devState.songs.custom.unshift({ ...song, _devId: devMakeId('song') });
+    summary.added++;
+  });
+
+  data.deleted.forEach(ref => {
+    const original = devFindOriginalSong(ref);
+    if (original) {
+      if (!devState.songs.deleted.includes(original.internalId)) {
+        devState.songs.deleted.push(original.internalId);
+        delete devState.songs.edits[original.internalId];
+        summary.deleted++;
+      } else {
+        summary.skipped++;
+      }
+      return;
+    }
+
+    const custom = devFindCustomSong(ref);
+    if (custom) {
+      devState.songs.custom = devState.songs.custom.filter(song => song._devId !== custom._devId);
+      summary.deleted++;
+    } else {
+      summary.missing++;
+    }
+  });
+
+  data.edited.forEach(entry => {
+    const original = devFindOriginalSong(entry.from);
+    if (original) {
+      devState.songs.edits[original.internalId] = entry.to;
+      const di = devState.songs.deleted.indexOf(original.internalId);
+      if (di !== -1) devState.songs.deleted.splice(di, 1);
+      summary.edited++;
+      return;
+    }
+
+    const custom = devFindCustomSong(entry.from);
+    if (custom) {
+      Object.assign(custom, entry.to);
+      summary.edited++;
+      return;
+    }
+
+    if (devFindCurrentSongExact(entry.to)) {
+      summary.skipped++;
+    } else {
+      devState.songs.custom.unshift({ ...entry.to, _devId: devMakeId('song') });
+      summary.addedAsNew++;
+    }
+  });
+
+  devSaveState();
+  devRenderSongs();
+  const view = devSongView();
+  summary.duplicates = view.duplicates.length;
+  return summary;
+}
+
+function devOpenImportModal() {
+  $('devImportError').classList.remove('visible');
+  $('devImportError').textContent = '';
+  $('devImportTextarea').value = '';
+  $('devImportModal').hidden = false;
+  setTimeout(() => $('devImportTextarea').focus(), 30);
+}
+
+function devCloseImportModal() {
+  $('devImportModal').hidden = true;
+  $('devImportError').classList.remove('visible');
+}
+
+function devConfirmImport() {
+  const text = $('devImportTextarea').value;
+  try {
+    $('devSongSearch').value = '';
+    const summary = devApplyPartialImport(text);
+    devCloseImportModal();
+
+    const parts = [
+      `新增 ${summary.added}`,
+      `修改 ${summary.edited}`,
+      `删除 ${summary.deleted}`
+    ];
+    if (summary.addedAsNew) parts.push(`补充 ${summary.addedAsNew}`);
+    if (summary.skipped) parts.push(`跳过重复项 ${summary.skipped}`);
+    if (summary.missing) parts.push(`未找到 ${summary.missing}`);
+    devToast(`导入完成：${parts.join('，')}${summary.duplicates ? `；检测到 ${summary.duplicates} 条重复` : ''}`);
+
+    if (summary.duplicates) {
+      setTimeout(() => {
+        const hint = $('devSongDuplicateHint');
+        if (hint && !hint.hidden) hint.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    }
+  } catch (e) {
+    const error = $('devImportError');
+    error.textContent = e && e.message ? e.message : '导入失败，请检查文本。';
+    error.classList.add('visible');
+  }
+}
+
 function devClearAllState() {
   devState = {
     songs: { custom: [], deleted: [], edits: {} },
@@ -712,6 +1078,14 @@ function devInit() {
   $('devAddSegmentBtn').addEventListener('click', () => devOpenModal('segments'));
   $('devExportSongBtn').addEventListener('click', devExportSongs);
   $('devExportSegmentBtn').addEventListener('click', devExportSegments);
+  $('devPartialExportBtn').addEventListener('click', devPartialExport);
+  $('devImportBtn').addEventListener('click', devOpenImportModal);
+  $('devImportClose').addEventListener('click', devCloseImportModal);
+  $('devImportCancel').addEventListener('click', devCloseImportModal);
+  $('devImportConfirm').addEventListener('click', devConfirmImport);
+  $('devImportModal').addEventListener('click', (e) => {
+    if (e.target === $('devImportModal')) devCloseImportModal();
+  });
   $('devResetSongBtn').addEventListener('click', () => devResetType('songs'));
   $('devResetSegmentBtn').addEventListener('click', () => devResetType('segments'));
   $('devSongSearch').addEventListener('input', devRenderSongs);
@@ -767,7 +1141,9 @@ function devInit() {
     if (e.target === $('devModal')) devCloseModal();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('devModal').hidden) devCloseModal();
+    if (e.key !== 'Escape') return;
+    if (!$('devImportModal').hidden) devCloseImportModal();
+    else if (!$('devModal').hidden) devCloseModal();
   });
 
   devSetTab('songs');

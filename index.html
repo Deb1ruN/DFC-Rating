@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.7.0</title>
+<title>DFC Rating计算 · v5.8.0</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -315,7 +315,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.7.0</span>
+      <span class="badge">v5.8.0</span>
     </div>
 
     <div class="benchmark-section">
@@ -582,7 +582,7 @@
 
     <div class="dev-notice">
       <span>💡</span>
-      <span>新增数据会置顶显示。完成编辑后，点击对应的「导出」按钮下载新的 JS 文件，用它替换网站原文件即可生效。替换后请点击「恢复原始数据」清空本地开发者记录，避免下次重复叠加。</span>
+      <span>新增数据会置顶显示。完成编辑后，点击对应的「导出」按钮下载新的 JS 文件，用它替换网站原文件即可生效。替换后请点击「恢复原始数据」清空本地开发者记录，避免下次重复叠加。部分导出 / 导入修改仅针对谱面数据，可通过剪贴板在设备间传递；导入后会自动检查 Phira ID 重复，并将重复项置顶标记。</span>
     </div>
 
     <div class="dev-tabs">
@@ -595,6 +595,8 @@
         <div class="dev-toolbar-actions">
           <button class="btn btn-primary" id="devAddSongBtn">＋ 新增谱面</button>
           <button class="btn btn-success" id="devExportSongBtn">⬇ 导出 data-songs.js</button>
+          <button class="btn btn-outline" id="devPartialExportBtn">📤 部分导出</button>
+          <button class="btn btn-outline" id="devImportBtn">📥 导入修改</button>
           <button class="btn btn-outline" id="devResetSongBtn">↺ 恢复原始数据</button>
         </div>
         <span class="dev-count" id="devSongCount">—</span>
@@ -603,6 +605,7 @@
         <span class="search-icon">🔍</span>
         <input type="search" id="devSongSearch" placeholder="搜索曲名或 Phira ID..." autocomplete="off" />
       </div>
+      <div class="dev-duplicate-hint" id="devSongDuplicateHint" hidden></div>
       <div class="dev-list" id="devSongList"></div>
     </div>
 
@@ -724,6 +727,23 @@
         <button type="submit" class="btn btn-primary" id="devFormSubmit">添加到数据</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 开发者选项：导入部分修改 -->
+<div class="dev-modal-overlay" id="devImportModal" hidden>
+  <div class="dev-modal dev-import-modal" role="dialog" aria-modal="true" aria-labelledby="devImportTitle">
+    <div class="dev-modal-header">
+      <h3 id="devImportTitle">导入修改</h3>
+      <button class="dev-modal-close" id="devImportClose" type="button" aria-label="关闭">×</button>
+    </div>
+    <p class="dev-import-desc">粘贴其他设备「部分导出」复制的内容，系统会自动识别新增、删除和修改的谱面，并检查 Phira ID 重复。</p>
+    <textarea id="devImportTextarea" class="dev-import-textarea" placeholder="在此粘贴 DFC-DEV-SONGS/1 ... 文本" spellcheck="false"></textarea>
+    <div class="dev-form-error" id="devImportError" role="alert"></div>
+    <div class="dev-modal-actions">
+      <button type="button" class="btn btn-outline" id="devImportCancel">取消</button>
+      <button type="button" class="btn btn-primary" id="devImportConfirm">导入并应用</button>
+    </div>
   </div>
 </div>
 
