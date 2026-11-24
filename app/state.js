@@ -68,6 +68,8 @@ const previewSearchInput = $('previewSearchInput');
 const previewSearchClear = $('previewSearchClear');
 const previewSortSelect = $('previewSortSelect');
 const previewSortWrap = $('previewSortWrap');
+const previewStableSelect = $('previewStableSelect');
+const previewStableWrap = $('previewStableWrap');
 const previewModeButtons = document.querySelectorAll('.preview-mode-btn');
 
 // 详情页 DOM
@@ -78,6 +80,9 @@ const detailLoadingImg = $('detailLoadingImg');
 const detailArtPh = $('detailArtPh');
 const detailName = $('detailName');
 const detailConstBadge = $('detailConstBadge');
+const detailStableRow = $('detailStableRow');
+const detailStableBadge = $('detailStableBadge');
+const detailNonStableNote = $('detailNonStableNote');
 const detailChartId = $('detailChartId');
 const detailCopyBtn = $('detailCopyBtn');
 const detailCopyIcon = $('detailCopyIcon');
@@ -175,14 +180,82 @@ let results = [];
 let mainRatingMode = 'normal';   // 'normal' | 'force'
 
 // 段位数据：补齐 internalId / index，便于预览、存储与查询
+// internalId 使用名称 + Phira ID，不再依赖数组下标，避免排序后丢失本地成绩
+function segmentStorageKeyFromLegacy(key) {
+  if (typeof key !== 'string' || !key.startsWith('seg|')) return key;
+  const parts = key.split('|');
+  if (parts.length < 4 || !/^\d+$/.test(parts[1])) return key;
+  const name = parts.slice(2, -1).join('|');
+  const chartId = parts[parts.length - 1];
+  return `seg|${name}|${chartId}`;
+}
+
+// 谱面 internalId 由「名称|定数|PhiraID」组成；数据更新后尽量把旧 ACC 键迁移到新键
+function normalizeSongStorageName(name) {
+  return String(name || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function songStorageKeyFromLegacy(key) {
+  if (typeof key !== 'string' || key.startsWith('seg|')) return key;
+  if (SONG_DATA.some(song => song.internalId === key)) return key;
+
+  const parts = key.split('|');
+  if (parts.length < 3) return key;
+  const chartId = parts[parts.length - 1];
+  const constant = Number(parts[parts.length - 2]);
+  const name = parts.slice(0, -2).join('|');
+  const normName = normalizeSongStorageName(name);
+
+  let song = null;
+  if (chartId !== '') {
+    song = SONG_DATA.find(item => String(item.chartId == null ? '' : item.chartId) === chartId);
+  }
+  if (!song && Number.isFinite(constant)) {
+    const exact = SONG_DATA.filter(item =>
+      normalizeSongStorageName(item.name) === normName &&
+      Math.abs(Number(item.constant) - constant) < 1e-9
+    );
+    if (exact.length === 1) song = exact[0];
+  }
+  if (!song) {
+    const byName = SONG_DATA.filter(item => normalizeSongStorageName(item.name) === normName);
+    if (byName.length === 1) song = byName[0];
+  }
+  // 历史拼写：lzumi 7983 -> Izumi 7983
+  if (!song && normName === 'lzumi 7983') {
+    song = SONG_DATA.find(item => normalizeSongStorageName(item.name) === 'izumi 7983');
+  }
+  return song ? song.internalId : key;
+}
+
 const SEG_DATA = (window.SEG_PRESETS || []).map((seg, idx) => ({
   ...seg,
   index: idx,
   isSegment: true,
   constant: null,
-  internalId: `seg|${idx}|${seg.name}|${seg.chartId == null ? '' : seg.chartId}`
+  internalId: `seg|${seg.name}|${seg.chartId == null ? '' : seg.chartId}`
 }));
 let segmentAccs = {};
+
+// 迁移旧版段位详情本地记录：seg|下标|名称|ID -> seg|名称|ID
+(function migrateSegmentDetailSavedKeys() {
+  try {
+    const raw = localStorage.getItem(KEY.segmentDetailAccs);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return;
+    const next = {};
+    Object.entries(saved).forEach(([key, value]) => {
+      next[segmentStorageKeyFromLegacy(key)] = value;
+    });
+    localStorage.setItem(KEY.segmentDetailAccs, JSON.stringify(next));
+  } catch (e) {}
+})();
 
 let playerName = '';
 let playerId = '';
@@ -225,6 +298,7 @@ let segChartMode = 'line';      // 'line' | 'bar'
 
 let previewSearchQuery = '';
 let previewSortMode = 'rating';   // 'rating' | 'constant'
+let previewStableMode = 'mix';    // 'mix' | 'top' | 'hide'
 let previewMode = 'single';       // 'single' | 'segment'
 
 // 详情页当前谱面

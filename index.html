@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.8.0</title>
+<title>DFC Rating计算 · v5.9.0</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -182,6 +182,14 @@
           <option value="constant">难度</option>
         </select>
       </div>
+      <div class="preview-sort-wrap" id="previewStableWrap">
+        <label for="previewStableSelect" class="sort-label">Stable</label>
+        <select id="previewStableSelect">
+          <option value="mix">混排</option>
+          <option value="top">非Stable置顶</option>
+          <option value="hide">隐藏非Stable</option>
+        </select>
+      </div>
     </div>
     <!-- 确保列表在工具栏的下方，且没有被嵌套进工具栏里 -->
     <div class="preview-list" id="previewList">
@@ -207,9 +215,14 @@
     <div class="detail-body">
       <div class="detail-info-card">
         <div class="detail-name" id="detailName">—</div>
+        <div class="detail-nonstable-note" id="detailNonStableNote" hidden>⚠️ 非 Stable 谱面：单曲 Rating 正常计算，但不计入玩家 Rating 均值与 B50。</div>
         <div class="detail-row">
           <span class="detail-label">难度</span>
           <span class="detail-const-badge" id="detailConstBadge">—</span>
+        </div>
+        <div class="detail-row" id="detailStableRow">
+          <span class="detail-label">Stable</span>
+          <span class="detail-stable-badge" id="detailStableBadge">—</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Phira ID</span>
@@ -315,7 +328,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.8.0</span>
+      <span class="badge">v5.9.0</span>
     </div>
 
     <div class="benchmark-section">
@@ -614,6 +627,8 @@
         <div class="dev-toolbar-actions">
           <button class="btn btn-primary" id="devAddSegmentBtn">＋ 新增段位</button>
           <button class="btn btn-success" id="devExportSegmentBtn">⬇ 导出 data-segments.js</button>
+          <button class="btn btn-outline" id="devPartialExportSegmentBtn">📤 部分导出</button>
+          <button class="btn btn-outline" id="devImportSegmentBtn">📥 导入修改</button>
           <button class="btn btn-outline" id="devResetSegmentBtn">↺ 恢复原始数据</button>
         </div>
         <span class="dev-count" id="devSegmentCount">—</span>
@@ -622,6 +637,7 @@
         <span class="search-icon">🔍</span>
         <input type="search" id="devSegmentSearch" placeholder="搜索段位名、谱师或 Phira ID..." autocomplete="off" />
       </div>
+      <div class="dev-duplicate-hint" id="devSegmentDuplicateHint" hidden></div>
       <div class="dev-list" id="devSegmentList"></div>
     </div>
   </section>
@@ -652,6 +668,13 @@
             <span>Phira ID</span>
             <input type="text" id="devSongChartId" inputmode="numeric" placeholder="留空或非法自动为 null" autocomplete="off" />
           </label>
+        </div>
+        <div class="dev-field">
+          <span>Stable 状态</span>
+          <div class="dev-stable-toggle" id="devSongStableToggle">
+            <button type="button" data-dev-stable-value="true">Stable</button>
+            <button type="button" data-dev-stable-value="false" class="active">非 Stable</button>
+          </div>
         </div>
         <div class="dev-field-grid dev-ratio-grid">
           <label class="dev-field">

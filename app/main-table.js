@@ -106,11 +106,18 @@ function loadFromLocalStorage() {
   if (!stored) return;
   try {
     const accObj = JSON.parse(stored);
+    const normalizedAccObj = {};
+    Object.keys(accObj).forEach(key => {
+      const newKey = key.startsWith('seg|') ? segmentStorageKeyFromLegacy(key) : songStorageKeyFromLegacy(key);
+      // 新格式键优先，避免旧键覆盖已经迁移的数据
+      if (key !== newKey && normalizedAccObj[newKey] !== undefined) return;
+      normalizedAccObj[newKey] = accObj[key];
+    });
     let anyFilled = false;
     SONG_DATA.forEach((song, idx) => {
       const id = song.internalId;
-      if (accObj.hasOwnProperty(id)) {
-        const val = accObj[id];
+      if (normalizedAccObj.hasOwnProperty(id)) {
+        const val = normalizedAccObj[id];
         if (val !== undefined && val !== null && val !== '') {
           inputs[idx].value = val;
           anyFilled = true;
@@ -119,8 +126,8 @@ function loadFromLocalStorage() {
     });
     SEG_DATA.forEach(seg => {
       const id = seg.internalId;
-      if (accObj.hasOwnProperty(id)) {
-        const val = accObj[id];
+      if (normalizedAccObj.hasOwnProperty(id)) {
+        const val = normalizedAccObj[id];
         if (val !== undefined && val !== null && val !== '') {
           segmentAccs[id] = val;
           anyFilled = true;
@@ -149,7 +156,8 @@ function calculate(isInitialLoad) {
     const rating = calcSingleRating(song.constant, stacc || 0);
     results.push({
       index: idx, id: song.internalId, rating, stacc: staccPercent, acc: accNum,
-      constant: song.constant, chartId: song.chartId, name: song.name, yellowRatio: song.yellowRatio
+      constant: song.constant, chartId: song.chartId, name: song.name, yellowRatio: song.yellowRatio,
+      stable: song.stable !== false
     });
   });
 
@@ -170,7 +178,7 @@ function calculate(isInitialLoad) {
 }
 
 function updateDisplay() {
-  const validResults = results.filter(r => r.rating !== undefined && !isNaN(r.rating));
+  const validResults = results.filter(r => r.rating !== undefined && !isNaN(r.rating) && r.stable !== false);
   const sorted = [...validResults].sort((a, b) => b.rating - a.rating);
   const top = sorted.slice(0, TOP_N);
   const count = top.length;

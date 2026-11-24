@@ -17,6 +17,27 @@ function previewMatches(song, query) {
   return false;
 }
 
+function previewItemStable(item) {
+  return item && item.data && item.data.stable !== false;
+}
+
+function applyStableFilter(items) {
+  if (previewStableMode === 'hide') return items.filter(previewItemStable);
+  if (previewStableMode === 'top') {
+    return [
+      ...items.filter(item => !previewItemStable(item)),
+      ...items.filter(previewItemStable)
+    ];
+  }
+  return items;
+}
+
+function previewStableSuffix() {
+  if (previewStableMode === 'top') return '，非Stable置顶';
+  if (previewStableMode === 'hide') return '，已隐藏非Stable';
+  return '';
+}
+
 function renderPreview() {
   if (previewMode === 'segment') { renderSegmentPreview(); return; }
   if (results.length === 0 && inputs.every(i => !i.value.trim())) {
@@ -47,6 +68,7 @@ function renderPreview() {
       return String(a.data.name).localeCompare(String(b.data.name));
     });
 
+    allItems = applyStableFilter(allItems);
     totalShown = allItems.length;
 
     if (totalShown === 0) {
@@ -60,27 +82,39 @@ function renderPreview() {
     });
 
     previewCount.textContent = q
-      ? `搜索结果 ${totalShown} 首（按难度）`
-      : `共 ${totalShown} 首（按难度）`;
+      ? `搜索结果 ${totalShown} 首（按难度${previewStableSuffix()}）`
+      : `共 ${totalShown} 首（按难度${previewStableSuffix()}）`;
   } else {
-    // ===== 按单曲 Rating 排序：B50 + 剩余 =====
+    // ===== 按单曲 Rating 排序：Stable B50 + 剩余 =====
     const sorted = [...results].sort((a, b) => b.rating - a.rating);
-    let b50 = sorted.slice(0, 50);
-    let rest = sorted.slice(50);
+    const stableResults = sorted.filter(r => r.stable !== false);
+    const unstableResults = sorted.filter(r => r.stable === false);
+
+    // 非 Stable 谱面不占用 B50 名额
+    let b50 = stableResults.slice(0, 50);
+    let stableRest = stableResults.slice(50);
     const playedIds = new Set(results.map(r => r.id));
-    let untouched = SONG_DATA.filter(s => !playedIds.has(s.internalId)).sort((a, b) => b.constant - a.constant);
+    let untouched = SONG_DATA.filter(s => !playedIds.has(s.internalId));
 
     if (q) {
       b50 = b50.filter(r => previewMatches(r, q));
-      rest = rest.filter(r => previewMatches(r, q));
+      stableRest = stableRest.filter(r => previewMatches(r, q));
+      unstableResults = unstableResults.filter(r => previewMatches(r, q));
       untouched = untouched.filter(s => previewMatches(s, q));
     }
 
-    const restList = [
-      ...rest.map(r => ({ type: 'result', data: r })),
+    let restList = [
+      ...stableRest.map(r => ({ type: 'result', data: r })),
+      ...unstableResults.map(r => ({ type: 'result', data: r })),
       ...untouched.map(s => ({ type: 'untouched', data: s }))
     ].sort((a, b) => b.data.constant - a.data.constant);
 
+    if (previewStableMode === 'hide') {
+      restList = restList.filter(previewItemStable);
+    }
+
+    const unstableRest = restList.filter(item => !previewItemStable(item));
+    const stableRestItems = restList.filter(previewItemStable);
     totalShown = b50.length + restList.length;
 
     if (totalShown === 0) {
@@ -89,17 +123,32 @@ function renderPreview() {
       return;
     }
 
+    if (previewStableMode === 'top' && unstableRest.length > 0) {
+      html += `<div class="preview-divider"><span>非 Stable 谱面（置顶）</span></div>`;
+      unstableRest.forEach(item => {
+        html += renderPreviewItem(item.data, null, item.type);
+      });
+      if (b50.length > 0) {
+        html += `<div class="preview-divider"><span>Stable B50</span></div>`;
+      }
+    }
+
     b50.forEach((r, i) => { html += renderPreviewItem(r, i + 1, 'result'); });
-    if (restList.length > 0) {
-      html += `<div class="preview-divider"><span>以下为剩余谱面（按定数降序）</span></div>`;
-      restList.forEach(item => {
+
+    const showRest = previewStableMode === 'top' ? stableRestItems : restList;
+    if (showRest.length > 0) {
+      const restLabel = previewStableMode === 'top'
+        ? '以下为剩余 Stable 谱面（按定数降序）'
+        : '以下为剩余谱面（按定数降序）';
+      html += `<div class="preview-divider"><span>${restLabel}</span></div>`;
+      showRest.forEach(item => {
         html += renderPreviewItem(item.data, null, item.type);
       });
     }
 
     previewCount.textContent = q
-      ? `搜索结果 ${totalShown} 首`
-      : `共 ${totalShown} 首（B50: ${b50.length}）`;
+      ? `搜索结果 ${totalShown} 首${previewStableSuffix()}`
+      : `共 ${totalShown} 首（Stable B50: ${b50.length}${previewStableSuffix()}）`;
   }
 
   previewList.innerHTML = html;
@@ -201,6 +250,9 @@ function renderPreviewItem(data, rank, type) {
   const rankPrefix = rank ? '#' + rank + ' ' : '';
   const songIndex = SONG_DATA.findIndex(s => s.internalId === (data.internalId || (name + '|' + constant + '|' + (chartId || ''))));
   const constColor = getConstColor(constant);
+  const stableBadge = data.stable === false
+    ? ' <span class="preview-stable-badge">非Stable</span>'
+    : '';
 
   if (type === 'untouched') {
     return `
@@ -208,7 +260,7 @@ function renderPreviewItem(data, rank, type) {
         ${artBoxHtml(chartId)}
         <div class="preview-info">
           <div class="preview-name" title="${escapeHtml(name)}">${rankPrefix}${escapeHtml(name)}</div>
-          <div class="preview-meta">定数 ${constant} · Chart ID ${chartId || '—'}</div>
+          <div class="preview-meta">定数 ${constant} · Chart ID ${chartId || '—'}${stableBadge}</div>
         </div>
         <div class="preview-right"><div class="preview-untouched">未游玩</div></div>
       </div>`;
@@ -225,7 +277,7 @@ function renderPreviewItem(data, rank, type) {
       ${artBoxHtml(chartId)}
       <div class="preview-info">
         <div class="preview-name" title="${escapeHtml(name)}">${rankPrefix}${escapeHtml(name)}</div>
-        <div class="preview-meta">定数 ${constant} · Chart ID ${chartId || '—'}</div>
+        <div class="preview-meta">定数 ${constant} · Chart ID ${chartId || '—'}${stableBadge}</div>
       </div>
       <div class="preview-right">
         <div class="preview-stacc" style="color:${staccColor};">${staccDisplay}</div>
@@ -242,6 +294,7 @@ previewModeButtons.forEach(btn => {
     previewMode = mode;
     previewModeButtons.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
     if (previewSortWrap) previewSortWrap.style.display = '';
+    if (previewStableWrap) previewStableWrap.style.display = mode === 'segment' ? 'none' : '';
     if (mode === 'segment') {
       previewSortMode = 'rating';
       previewSortSelect.value = 'rating';
@@ -260,6 +313,13 @@ previewModeButtons.forEach(btn => {
 if (previewSortSelect) {
   previewSortSelect.addEventListener('change', function() {
     previewSortMode = this.value === 'constant' ? 'constant' : 'rating';
+    renderPreview();
+  });
+}
+
+if (previewStableSelect) {
+  previewStableSelect.addEventListener('change', function() {
+    previewStableMode = ['top', 'hide'].includes(this.value) ? this.value : 'mix';
     renderPreview();
   });
 }
@@ -343,6 +403,17 @@ function renderDetailPage(item, isSegment) {
     detailConstBadge.textContent = song.constant;
     detailConstBadge.style.background = cStyle.bg;
     detailConstBadge.style.color = cStyle.color;
+  }
+
+  if (isSeg) {
+    detailStableRow.style.display = 'none';
+    detailNonStableNote.hidden = true;
+  } else {
+    const isStable = song.stable !== false;
+    detailStableRow.style.display = 'flex';
+    detailStableBadge.textContent = isStable ? 'Stable' : '非 Stable';
+    detailStableBadge.classList.toggle('nonstable', !isStable);
+    detailNonStableNote.hidden = isStable;
   }
 
   detailStatsTitle.textContent = isSeg ? '📊 段位数据' : '📊 谱面数据';

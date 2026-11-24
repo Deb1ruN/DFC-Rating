@@ -436,6 +436,17 @@ body { min-height: 100vh; padding-top: var(--navbar-h); overflow-x: clip; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.preview-stable-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 7px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #9a3412;
+  background: #ffedd5;
+  vertical-align: 1px;
+}
 .preview-item .preview-right { 
   flex-shrink: 0; 
   display: flex; 
@@ -629,6 +640,34 @@ body { min-height: 100vh; padding-top: var(--navbar-h); overflow-x: clip; }
   border-radius: 30px;
   font-weight: 700;
   font-size: 15px;
+}
+
+.detail-stable-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 14px;
+  border-radius: 30px;
+  font-weight: 700;
+  font-size: 14px;
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.detail-stable-badge.nonstable {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.detail-nonstable-note {
+  margin: 6px 0 12px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .detail-stats-card {
@@ -1651,6 +1690,7 @@ body {
 .dev-item-title {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -1686,6 +1726,48 @@ body {
 .dev-badge.duplicate {
   color: #991b1b;
   background: #fee2e2;
+}
+
+.dev-badge.stable {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.dev-badge.unstable {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.dev-stable-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 3px;
+  padding: 3px;
+  background: #f1f5f9;
+  border-radius: 30px;
+}
+
+.dev-stable-toggle button {
+  border: none;
+  border-radius: 30px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--c-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.dev-stable-toggle button.active[data-dev-stable-value="true"] {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.dev-stable-toggle button.active[data-dev-stable-value="false"] {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .dev-badge.original {

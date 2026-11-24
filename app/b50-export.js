@@ -117,7 +117,8 @@ async function exportB50Image() {
     return;
   }
 
-  const sorted = [...results].sort((a, b) => b.rating - a.rating);
+  const validResults = results.filter(r => r.rating !== undefined && !isNaN(r.rating) && r.stable !== false);
+  const sorted = [...validResults].sort((a, b) => b.rating - a.rating);
   const top50 = sorted.slice(0, TOP_N);
 
   if (top50.length === 0) {
