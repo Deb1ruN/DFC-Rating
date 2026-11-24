@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.9.0</title>
+<title>DFC Rating计算 · v5.9.2</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -232,11 +232,11 @@
             <span id="detailCopyText">复制</span>
           </button>
         </div>
-        <div class="detail-row">
+        <div class="detail-row" id="detailCharterRow">
           <span class="detail-label">谱师</span>
           <span class="detail-value" id="detailCharter">—</span>
         </div>
-        <div class="detail-row">
+        <div class="detail-row" id="detailComposerRow">
           <span class="detail-label">曲师</span>
           <span class="detail-value" id="detailComposer">—</span>
         </div>
@@ -328,7 +328,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.9.0</span>
+      <span class="badge">v5.9.2</span>
     </div>
 
     <div class="benchmark-section">
@@ -545,17 +545,6 @@
               <button class="setting-toggle-btn" data-setting="const-style" data-value="none">不显示</button>
             </div>
           </div>
-
-          <div class="player-setting-row">
-            <div class="player-setting-info">
-              <div class="player-setting-name">高清原图</div>
-              <div class="player-setting-desc">详情页大图与单曲导出使用高清曲绘（加载较慢）</div>
-            </div>
-            <div class="setting-toggle">
-              <button class="setting-toggle-btn" data-setting="use-full-cover" data-value="off">关闭</button>
-              <button class="setting-toggle-btn" data-setting="use-full-cover" data-value="on">开启</button>
-            </div>
-          </div>
         </div>
 
         <div class="player-actions-card">
@@ -659,6 +648,17 @@
           <span>曲名 <b>*</b></span>
           <input type="text" id="devSongName" maxlength="200" placeholder="例如：Stalemate" autocomplete="off" />
         </label>
+        <div class="dev-field-grid">
+          <label class="dev-field">
+            <span>谱师</span>
+            <input type="text" id="devSongCharter" maxlength="200" placeholder="留空则回退到 Phira ID 查询" autocomplete="off" />
+          </label>
+          <label class="dev-field">
+            <span>曲师</span>
+            <input type="text" id="devSongComposer" maxlength="200" placeholder="留空则回退到 Phira ID 查询" autocomplete="off" />
+          </label>
+        </div>
+        <div class="dev-field-hint">谱师/曲师留空或填写 __TBD__ 时，网站会按 Phira ID 自动查询。</div>
         <div class="dev-field-grid">
           <label class="dev-field">
             <span>定数 <b>*</b></span>

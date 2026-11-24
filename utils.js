@@ -123,3 +123,15 @@ function downloadBlobWithExt(blob, baseName) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+// data-songs.js 中谱师/曲师的占位符；出现时视作无效，回退到 Phira ID 查询
+const SONG_META_PLACEHOLDER = '__TBD__';
+
+function isValidSongMeta(value) {
+  const text = String(value == null ? '' : value).trim();
+  return !!text && text !== SONG_META_PLACEHOLDER && text !== '—' && text !== '-';
+}
+
+function normalizeSongMeta(value) {
+  return isValidSongMeta(value) ? String(value).trim() : '';
+}

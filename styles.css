@@ -679,6 +679,7 @@ body { min-height: 100vh; padding-top: var(--navbar-h); overflow-x: clip; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  align-self: start;
 }
 .detail-stats-title {
   font-size: 13px;

@@ -12,9 +12,6 @@ function getSettingConstStyle() {
   return localStorage.getItem(KEY.settingsConstStyle) || 'left';
 }
 
-function getSettingUseFullCover() {
-  return localStorage.getItem(KEY.settingsUseFullCover) || 'off';
-}
 function applyGuideHintsSetting(val) {
   if (val === 'off') document.body.classList.add('hide-guide-hints');
   else document.body.classList.remove('hide-guide-hints');
@@ -24,10 +21,6 @@ function applyConstStyleSetting(val) {
 }
 
 function updateSettingButtons() {
-  const ufc = getSettingUseFullCover();
-  document.querySelectorAll('.setting-toggle-btn[data-setting="use-full-cover"]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.value === ufc);
-  });
   const gh = getSettingGuideHints();
   const cs = getSettingConstStyle();
   document.querySelectorAll('.setting-toggle-btn[data-setting="guide-hints"]').forEach(btn => {
@@ -55,8 +48,6 @@ function bindSettingButtons() {
       } else if (setting === 'const-style') {
         localStorage.setItem(KEY.settingsConstStyle, value);
         applyConstStyleSetting(value);
-      } else if (setting === 'use-full-cover') {
-        localStorage.setItem(KEY.settingsUseFullCover, value);
       }
       updateSettingButtons();
     });

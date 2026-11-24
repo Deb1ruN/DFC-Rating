@@ -7,6 +7,71 @@
 // ============================================================
 detailExportBtn.addEventListener('click', detailExportImage);
 
+const DETAIL_EXPORT_FULL_TIMEOUT = 3500;
+const DETAIL_EXPORT_THUMB_TIMEOUT = 2500;
+
+function withTimeout(promise, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(null);
+    }, ms);
+    promise.then(value => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(() => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+function loadExportCoverImage(url, timeoutMs) {
+  return new Promise(resolve => {
+    if (!url) { resolve(null); return; }
+    let done = false;
+    const img = new Image();
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    img.onload = () => finish(img);
+    img.onerror = () => finish(null);
+    img.src = url;
+  });
+}
+
+async function resolveDetailExportCover(chartId) {
+  // 原图优先；超时/失败回退缩略图；最后回退占位图
+  const fullUrl = chartId
+    ? await withTimeout(getIllustration(chartId, 'full'), 2200)
+    : null;
+  if (fullUrl) {
+    const fullImg = await loadExportCoverImage(fullUrl, DETAIL_EXPORT_FULL_TIMEOUT);
+    if (fullImg) return { url: fullUrl, img: fullImg };
+  }
+
+  const thumbUrl = chartId
+    ? await withTimeout(getIllustration(chartId, 'thumb'), 1800)
+    : null;
+  if (thumbUrl) {
+    const thumbImg = await loadExportCoverImage(thumbUrl, DETAIL_EXPORT_THUMB_TIMEOUT);
+    if (thumbImg) return { url: thumbUrl, img: thumbImg };
+  }
+
+  const placeholderImg = await loadExportCoverImage(NO_COVER_URL, 1500);
+  return { url: NO_COVER_URL, img: placeholderImg };
+}
+
 async function detailExportImage() {
   if (typeof html2canvas === 'undefined') {
   alert('核心组件(html2canvas)加载失败，请刷新页面或检查网络后重试！');
@@ -59,21 +124,12 @@ async function detailExportImage() {
   const idxInB50 = b50.findIndex(r => r.index === songIndex);
   const rankText = idxInB50 >= 0 ? ('#' + (idxInB50 + 1)) : '未进入 B50';
 
-  // 曲绘 URL（本地原图）
-const useFull = getSettingUseFullCover() === 'on';
-const illustUrl = await getIllustration(song.chartId, useFull ? 'full' : 'thumb');
-  if (!illustUrl) {
-    alert('该谱面无曲绘，无法导出');
-    return;
-  }
-
-  // 预加载曲绘，获取真实尺寸，用于让容器跟随图片比例
-  const imgSize = await new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = () => resolve(null);
-    img.src = illustUrl;
-  });
+  // 曲绘：原图 → 缩略图 → 占位图逐级回退
+  const cover = await resolveDetailExportCover(song.chartId);
+  const illustUrl = cover.url;
+  const imgSize = cover.img
+    ? { w: cover.img.naturalWidth, h: cover.img.naturalHeight }
+    : null;
 
   // 根据图片比例计算展示尺寸（最长边不超过上限）
   const MAX_ART_W = 440;

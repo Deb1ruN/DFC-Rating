@@ -88,7 +88,7 @@ function renderPreview() {
     // ===== 按单曲 Rating 排序：Stable B50 + 剩余 =====
     const sorted = [...results].sort((a, b) => b.rating - a.rating);
     const stableResults = sorted.filter(r => r.stable !== false);
-    const unstableResults = sorted.filter(r => r.stable === false);
+    let unstableResults = sorted.filter(r => r.stable === false);
 
     // 非 Stable 谱面不占用 B50 名额
     let b50 = stableResults.slice(0, 50);
@@ -369,6 +369,94 @@ function renderSegmentNotes(seg) {
   }).join('');
 }
 
+function setDetailMetaRow(row, el, value) {
+  const text = normalizeSongMeta(value);
+  if (!row || !el) return;
+  if (!text) {
+    row.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  row.style.display = 'flex';
+  el.textContent = text;
+}
+
+function showDetailMetaLoading(row, el) {
+  if (!row || !el) return;
+  row.style.display = 'flex';
+  el.textContent = '加载中...';
+}
+
+function preloadDetailImage(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function withCoverTimeout(promise, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(null);
+    }, ms);
+    Promise.resolve(promise).then(value => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(() => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+async function loadDetailCoverProgressive(song) {
+  const thumbPromise = getIllustration(song.chartId, 'thumb').catch(() => null);
+  const fullPromise = getIllustration(song.chartId, 'full').catch(() => null);
+
+  const thumbUrl = await withCoverTimeout(thumbPromise, 2500);
+  if (detailCurrentSong !== song) return;
+
+  // 缩略图先上屏；占位图只在缩略图也未就绪时保留
+  if (thumbUrl) {
+    const thumbImg = await preloadDetailImage(thumbUrl);
+    if (detailCurrentSong !== song) return;
+    if (thumbImg) {
+      detailArtImg.src = thumbUrl;
+      detailArtImg.style.display = 'block';
+    }
+  }
+
+  const fullUrl = await withCoverTimeout(fullPromise, 3000);
+  if (detailCurrentSong !== song) return;
+  if (!fullUrl || fullUrl === thumbUrl) return;
+
+  let fullImg = await preloadDetailImage(fullUrl);
+  let finalUrl = fullUrl;
+  // 高清图 CDN 失败时尝试 GitHub Pages 备用地址
+  if (!fullImg && fullUrl.includes(FULL_BASE_URL)) {
+    const fallbackUrl = fullUrl.replace(FULL_BASE_URL, FULL_FALLBACK_BASE_URL);
+    if (fallbackUrl !== fullUrl) {
+      fullImg = await preloadDetailImage(fallbackUrl);
+      finalUrl = fallbackUrl;
+    }
+  }
+  if (detailCurrentSong !== song) return;
+  if (fullImg) {
+    detailArtImg.src = finalUrl;
+    detailArtImg.style.display = 'block';
+  }
+}
+
 function renderDetailPage(item, isSegment) {
   const song = item;
   const isSeg = !!isSegment;
@@ -428,12 +516,19 @@ function renderDetailPage(item, isSegment) {
   detailCopyBtn.classList.remove('copied');
 
   if (isSeg) {
-    detailCharter.textContent = song.charter || '—';
-    detailComposer.textContent = '—';
+    setDetailMetaRow(detailCharterRow, detailCharter, song.charter);
+    setDetailMetaRow(detailComposerRow, detailComposer, 'Various Artists');
   } else {
-    // 谱师 / 曲师占位
-    detailCharter.textContent = '加载中...';
-    detailComposer.textContent = '加载中...';
+    const localCharter = normalizeSongMeta(song.charter);
+    const localComposer = normalizeSongMeta(song.composer);
+
+    if (localCharter) setDetailMetaRow(detailCharterRow, detailCharter, localCharter);
+    else if (song.chartId) showDetailMetaLoading(detailCharterRow, detailCharter);
+    else setDetailMetaRow(detailCharterRow, detailCharter, '');
+
+    if (localComposer) setDetailMetaRow(detailComposerRow, detailComposer, localComposer);
+    else if (song.chartId) showDetailMetaLoading(detailComposerRow, detailComposer);
+    else setDetailMetaRow(detailComposerRow, detailComposer, '');
   }
 
   // 黄键占比 + 三个基准 ACC
@@ -466,65 +561,28 @@ function renderDetailPage(item, isSegment) {
   if (isSeg && segNotesComplete) initDetailSegmentCalc(song);
   else hideDetailSegmentCalc();
 
-  // 曲绘：立即显示 loading 图
-  detailLoadingImg.src = LOADING_COVER_URL;
-  detailLoadingImg.style.display = 'block';
-  detailArtImg.style.display = 'none';
+  // 曲绘：占位图 → 缩略图 → 原图
+  detailLoadingImg.style.display = 'none';
   detailArtPh.style.display = 'none';
+  detailArtImg.src = NO_COVER_URL;
+  detailArtImg.style.display = 'block';
 
-  if (!song.chartId) {
-    detailLoadingImg.style.display = 'none';
-    detailArtImg.src = NO_COVER_URL;
-    detailArtImg.style.display = 'block';
-  } else {
-    // 判断是否使用高清图
-    const useFull = getSettingUseFullCover() === 'on';
-    const targetSize = useFull ? 'full' : 'thumb';
-
-    getIllustration(song.chartId, targetSize).then(url => {
-      if (detailCurrentSong !== song) return;
-      if (!url) {
-        detailLoadingImg.style.display = 'none';
-        detailArtImg.src = NO_COVER_URL;
-        detailArtImg.style.display = 'block';
-        return;
-      }
-
-      const tempImg = new Image();
-      tempImg.onload = () => {
-        if (detailCurrentSong !== song) return;
-        // 使用 tempImg.src 确保是最终加载成功的链接
-        detailArtImg.src = tempImg.src;
-        detailArtImg.style.display = 'block';
-        detailLoadingImg.style.display = 'none';
-      };
-      tempImg.onerror = () => {
-        if (detailCurrentSong !== song) return;
-        // 如果是 jsDelivr 的高清原图加载失败（大图被拒绝），自动尝试 GitHub 备用
-        if (targetSize === 'full' && tempImg.src.includes('jsdelivr.net')) {
-          tempImg.src = tempImg.src.replace(FULL_BASE_URL, FULL_FALLBACK_BASE_URL);
-          return;
-        }
-        // 彻底失败则显示占位图
-        detailArtImg.src = NO_COVER_URL;
-        detailArtImg.style.display = 'block';
-        detailLoadingImg.style.display = 'none';
-      };
-      tempImg.src = url;
-    });
+  if (song.chartId) {
+    loadDetailCoverProgressive(song);
   }
 
-  // 异步获取谱师 / 曲师
+  // 本地谱师/曲师优先；缺失字段才回退到 Phira ID 查询
   if (!isSeg) {
-    if (song.chartId) {
+    const localCharter = normalizeSongMeta(song.charter);
+    const localComposer = normalizeSongMeta(song.composer);
+    if (song.chartId && (!localCharter || !localComposer)) {
       getChartMeta(song.chartId).then(meta => {
         if (detailCurrentSong !== song) return;
-        detailCharter.textContent = (meta && meta.charter) ? meta.charter : '—';
-        detailComposer.textContent = (meta && meta.composer) ? meta.composer : '—';
+        const apiCharter = meta && meta.charter;
+        const apiComposer = meta && meta.composer;
+        setDetailMetaRow(detailCharterRow, detailCharter, localCharter || apiCharter);
+        setDetailMetaRow(detailComposerRow, detailComposer, localComposer || apiComposer);
       });
-    } else {
-      detailCharter.textContent = '—';
-      detailComposer.textContent = '—';
     }
   }
 

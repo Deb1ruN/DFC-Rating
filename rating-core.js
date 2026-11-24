@@ -1,6 +1,6 @@
 // rating-core.js
 const TOP_N = 50;
-const VERSION = '5.9.0';
+const VERSION = '5.9.2';
 const API_BASE = 'https://phira.5wyxi.com';
 const PHIRA_WEB_USER = 'https://phira.moe/user/';
 const KEY = {
@@ -16,7 +16,6 @@ const KEY = {
   illust: 'dfc_rating_illust_cache',
   chartMeta: 'dfc_rating_chart_meta_cache',
   settingsGuideHints: 'dfc_rating_setting_guide_hints',
-  settingsUseFullCover: 'dfc_rating_setting_use_full_cover',
   settingsConstStyle: 'dfc_rating_setting_const_style',
   segmentDetailAccs: 'dfc_rating_segment_detail_accs_v1',
   devData: 'dfc_rating_dev_data_v1'

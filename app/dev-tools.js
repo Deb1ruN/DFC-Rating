@@ -38,6 +38,8 @@ function devNormalizeSong(song, id) {
     chartId: song.chartId === null || song.chartId === undefined ? null : Number(song.chartId),
     yellowRatio: Number(song.yellowRatio) || 0,
     stable: song.stable !== false,
+    charter: normalizeSongMeta(song.charter),
+    composer: normalizeSongMeta(song.composer),
     _devId: id || song._devId || devMakeId('song')
   };
 }
@@ -180,7 +182,9 @@ function devSongFields(song) {
     constant: Number(song.constant),
     chartId: devChartId(song.chartId),
     yellowRatio: Number(song.yellowRatio) || 0,
-    stable: song.stable !== false
+    stable: song.stable !== false,
+    charter: normalizeSongMeta(song.charter),
+    composer: normalizeSongMeta(song.composer)
   };
 }
 
@@ -203,7 +207,9 @@ function devSongsExactlyEqual(a, b) {
     String(a.name || '').trim() === String(b.name || '').trim() &&
     Math.abs(Number(a.constant) - Number(b.constant)) < 1e-9 &&
     Math.abs(Number(a.yellowRatio) - Number(b.yellowRatio)) < 1e-12 &&
-    (a.stable !== false) === (b.stable !== false);
+    (a.stable !== false) === (b.stable !== false) &&
+    normalizeSongMeta(a.charter) === normalizeSongMeta(b.charter) &&
+    normalizeSongMeta(a.composer) === normalizeSongMeta(b.composer);
 }
 
 function devSongView() {
@@ -451,6 +457,8 @@ function devSongCard(song) {
         <div class="dev-item-meta">
           定数 <b>${devNumber(song.constant, 2)}</b>
           · Phira ID <b>${song.chartId != null ? song.chartId : 'null'}</b>
+          ${normalizeSongMeta(song.charter) ? `· 谱师 <b>${escapeHtml(normalizeSongMeta(song.charter))}</b>` : ''}
+          ${normalizeSongMeta(song.composer) ? `· 曲师 <b>${escapeHtml(normalizeSongMeta(song.composer))}</b>` : ''}
           · 黄键占比 <b>${devPercent(song.yellowRatio)}</b>
           ${isDuplicate ? ` · <span class="dev-dup-meta">⚠️ 重复：${escapeHtml(song._devDuplicateLabel || '')}</span>` : ''}
         </div>
@@ -627,6 +635,8 @@ function devFillFormFromItem(type, item) {
     $('devSongName').value = item.name || '';
     $('devSongConstant').value = item.constant != null ? item.constant : '';
     $('devSongChartId').value = item.chartId != null ? item.chartId : '';
+    $('devSongCharter').value = normalizeSongMeta(item.charter);
+    $('devSongComposer').value = normalizeSongMeta(item.composer);
     $('devSongRatio').value = item.yellowRatio != null
       ? String(Number((Number(item.yellowRatio) * 100).toFixed(8)))
       : '';
@@ -765,7 +775,9 @@ function devReadSongForm() {
     constant,
     chartId,
     yellowRatio: Number((ratio / 100).toFixed(12)),
-    stable: devGetSongStable()
+    stable: devGetSongStable(),
+    charter: normalizeSongMeta($('devSongCharter').value),
+    composer: normalizeSongMeta($('devSongComposer').value)
   };
 }
 
@@ -928,7 +940,7 @@ function devSongExportText() {
     '// data-songs.js',
     `// 谱面数据（共 ${items.length} 条）`,
     '// 由 DFC Rating 开发者选项导出；可直接替换原 data-songs.js',
-    '// 格式：[曲名, 定数, Phira编号(null 表示无 ID), drag占比, Stable]',
+    '// 格式：[曲名, 定数, Phira编号(null 表示无 ID), drag占比, Stable, 谱师, 曲师]',
     'window.SONG_DATA = ['
   ];
   items.forEach((s, i) => {
@@ -937,16 +949,20 @@ function devSongExportText() {
       Number(s.constant),
       s.chartId == null ? 'null' : Number(s.chartId),
       Number(s.yellowRatio),
-      s.stable !== false ? 'true' : 'false'
+      s.stable !== false ? 'true' : 'false',
+      JSON.stringify(String(s.charter || '')),
+      JSON.stringify(String(s.composer || ''))
     ].join(', ');
     lines.push(`  [${arr}]${i < items.length - 1 ? ',' : ''}`);
   });
-  lines.push('].map(([name, constant, chartId, yellowRatio, stable]) => ({');
+  lines.push('].map(([name, constant, chartId, yellowRatio, stable, charter, composer]) => ({');
   lines.push('  name,');
   lines.push('  constant,');
   lines.push('  chartId,');
   lines.push('  yellowRatio,');
   lines.push('  stable: stable !== false,');
+  lines.push("  charter: charter == null ? '' : String(charter),");
+  lines.push("  composer: composer == null ? '' : String(composer),");
   lines.push("  internalId: name + '|' + constant + '|' + (chartId || '')");
   lines.push('}));');
   return lines.join('\n') + '\n';

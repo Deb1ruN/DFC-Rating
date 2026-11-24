@@ -207,13 +207,22 @@ async function preloadAllFullCovers() {
     return;
   }
 
-  const songs = SONG_DATA.filter(s => s.chartId && localCoverManifest[String(s.chartId)]);
-  const total = songs.length;
+  // 段位原图优先预加载（数量少，且此前缺少预热）；单曲随后继续预加载
+  const coverChartIds = new Set();
+  SEG_DATA.forEach(seg => {
+    if (seg.chartId) coverChartIds.add(String(seg.chartId));
+  });
+  SONG_DATA.forEach(song => {
+    if (song.chartId && localCoverManifest[String(song.chartId)]) coverChartIds.add(String(song.chartId));
+  });
+
+  const chartIds = [...coverChartIds];
+  const total = chartIds.length;
   let loadedCount = 0;
 
   console.log(`📷 开始预加载原图，共 ${total} 张`);
 
-  for (const song of songs) {
+  for (const id of chartIds) {
     if (preloadAborted) break;
 
     // 如果当前有查询等任务在跑，暂停预加载（每 500ms 检查一次）
@@ -222,11 +231,15 @@ async function preloadAllFullCovers() {
     }
     if (preloadAborted) break;
 
-    const key = String(song.chartId);
-    const entry = localCoverManifest[key];
-    if (!entry || typeof entry !== 'object' || !entry.full) continue;
-
-    const url = `${FULL_BASE_URL}/full/${entry.full}`;
+    let url = null;
+    const entry = localCoverManifest[id];
+    if (entry && typeof entry === 'object' && entry.full) {
+      url = `${FULL_BASE_URL}/full/${entry.full}`;
+    } else {
+      // 段位可能存在本地缩略图但 manifest 缺条目；仍然尝试取原图并预加载
+      try { url = await getIllustration(id, 'full'); } catch (e) {}
+    }
+    if (!url) continue;
 
     // 走统一队列，与缩略图共享并发限制；查询时队列冻结会自动推迟
     await new Promise(resolve => {
