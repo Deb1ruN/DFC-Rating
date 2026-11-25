@@ -1,6 +1,6 @@
 // rating-core.js
 const TOP_N = 50;
-const VERSION = '5.9.2';
+const VERSION = '5.9.4';
 const API_BASE = 'https://phira.5wyxi.com';
 const PHIRA_WEB_USER = 'https://phira.moe/user/';
 const KEY = {

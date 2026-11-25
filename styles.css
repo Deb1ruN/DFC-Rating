@@ -1255,7 +1255,14 @@ body { min-height: 100vh; padding-top: var(--navbar-h); overflow-x: clip; }
   .preview-item { border-left-width: 4px; border-radius: 8px; padding: 8px 12px 8px 8px; }
 }
 /* ===== 顶部提示框隐藏 ===== */
-body.hide-guide-hints .guide-hint { display: none !important; }
+/* 所有页面顶部的说明/警告框都归入此开关；新增顶部提示时请同步补充到这里。
+   用 display:none 而不是 visibility:hidden，避免隐藏后仍占据高度留下空白。 */
+body.hide-guide-hints .guide-hint,
+body.hide-guide-hints .dev-notice,
+body.hide-guide-hints .detail-nonstable-note,
+body.hide-guide-hints .dev-duplicate-hint {
+  display: none !important;
+}
 
 /* ===== 难度色条：四边模式 ===== */
 body[data-const-style="around"] .preview-item {
