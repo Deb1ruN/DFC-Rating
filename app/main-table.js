@@ -224,6 +224,11 @@ function updateDisplay() {
   });
 
   inputs.forEach((inp, idx) => inp.classList.toggle('has-value', topIndices.has(idx)));
+
+  // B50 曲绘在后台预热并持久缓存，导出时可直接跳过加载/处理步骤
+  if (typeof scheduleB50CoverPreload === 'function') {
+    scheduleB50CoverPreload();
+  }
 }
 
 ratingModeNormal.addEventListener('click', () => {

@@ -107,6 +107,308 @@ async function makeCoverThumb(url, width = 720, height = 405, bakeShades = true)
   return result;
 }
 
+// ============================================================
+// B50 曲绘预热与持久缓存
+// ------------------------------------------------------------
+// B50 导出最耗时的是把 50 张曲绘逐张载入、裁切、压暗并转成 DataURL。
+// 这里把处理好的 720×405 JPEG 按 Phira 编号存进 IndexedDB，刷新页面后仍可复用；
+// 查询成绩后只重新处理 B50 中发生变化的曲绘，其余直接命中缓存。
+// ============================================================
+const B50_COVER_DB_NAME = 'dfc_rating_b50_covers';
+const B50_COVER_DB_VERSION = 1;
+const B50_COVER_STORE = 'covers';
+const B50_COVER_WIDTH = 720;
+const B50_COVER_HEIGHT = 405;
+const B50_COVER_PRELOAD_DELAY = 1200;
+const B50_COVER_PRELOAD_CONCURRENCY = 3;
+
+const b50CoverMemory = new Map();       // chartId -> 缓存记录
+const b50CoverPending = new Map();      // chartId -> 正在处理的 Promise
+let b50CoverDbPromise = null;
+let b50CoverMemoryReady = null;
+let b50CoverPreloadTimer = null;
+let b50CoverPreloadToken = 0;
+let b50CoverPreloadQueue = Promise.resolve();
+let b50CoverPersistWarned = false;
+
+function openB50CoverDb() {
+  if (b50CoverDbPromise) return b50CoverDbPromise;
+
+  if (typeof indexedDB === 'undefined') {
+    b50CoverDbPromise = Promise.resolve(null);
+    return b50CoverDbPromise;
+  }
+
+  b50CoverDbPromise = new Promise((resolve) => {
+    let request;
+    try {
+      request = indexedDB.open(B50_COVER_DB_NAME, B50_COVER_DB_VERSION);
+    } catch (e) {
+      console.warn('B50 曲绘缓存打开失败，将仅使用内存缓存:', e);
+      resolve(null);
+      return;
+    }
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(B50_COVER_STORE)) {
+        db.createObjectStore(B50_COVER_STORE, { keyPath: 'chartId' });
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // 数据库版本变化时主动关闭，下次访问会重新打开
+      db.onversionchange = () => {
+        db.close();
+        b50CoverDbPromise = null;
+        b50CoverMemoryReady = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      console.warn('B50 曲绘缓存打开失败，将仅使用内存缓存:', request.error);
+      resolve(null);
+    };
+    request.onblocked = () => {
+      console.warn('B50 曲绘缓存被其他页面占用，将仅使用内存缓存');
+      resolve(null);
+    };
+  });
+
+  return b50CoverDbPromise;
+}
+
+function ensureB50CoverMemory() {
+  if (b50CoverMemoryReady) return b50CoverMemoryReady;
+
+  b50CoverMemoryReady = (async () => {
+    const db = await openB50CoverDb();
+    if (!db) return;
+
+    const records = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(B50_COVER_STORE, 'readonly');
+        const request = tx.objectStore(B50_COVER_STORE).getAll();
+        request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+        request.onerror = () => resolve([]);
+      } catch (e) {
+        console.warn('B50 曲绘缓存读取失败:', e);
+        resolve([]);
+      }
+    });
+
+    records.forEach(record => {
+      if (!record || record.chartId === undefined || record.chartId === null) return;
+      if (typeof record.dataUrl !== 'string' || !record.dataUrl.startsWith('data:image/')) return;
+      b50CoverMemory.set(String(record.chartId), record);
+    });
+  })().catch(e => {
+    console.warn('B50 曲绘缓存初始化失败，将仅使用内存缓存:', e);
+  });
+
+  return b50CoverMemoryReady;
+}
+
+function persistB50CoverRecord(record) {
+  openB50CoverDb().then(db => {
+    if (!db) return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction(B50_COVER_STORE, 'readwrite');
+        tx.objectStore(B50_COVER_STORE).put(record);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('B50 曲绘缓存事务失败'));
+        tx.onabort = () => reject(tx.error || new Error('B50 曲绘缓存事务中止'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }).catch(e => {
+    if (!b50CoverPersistWarned) {
+      b50CoverPersistWarned = true;
+      console.warn('B50 曲绘缓存写入失败（本次仅保存在内存中）:', e);
+    }
+  });
+}
+
+function deleteB50CoverRecords(ids) {
+  if (!ids.length) return Promise.resolve();
+
+  return openB50CoverDb().then(db => {
+    if (!db) return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction(B50_COVER_STORE, 'readwrite');
+        const store = tx.objectStore(B50_COVER_STORE);
+        ids.forEach(id => store.delete(id));
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('B50 曲绘缓存清理失败'));
+        tx.onabort = () => reject(tx.error || new Error('B50 曲绘缓存清理中止'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }).catch(e => {
+    console.warn('B50 曲绘缓存清理失败:', e);
+  });
+}
+
+async function pruneB50CoverCache(keepIds, token) {
+  await ensureB50CoverMemory();
+  if (token !== undefined && token !== b50CoverPreloadToken) return;
+
+  const staleIds = [...b50CoverMemory.keys()].filter(id => !keepIds.has(id));
+  if (!staleIds.length) return;
+  if (token !== undefined && token !== b50CoverPreloadToken) return;
+
+  staleIds.forEach(id => b50CoverMemory.delete(id));
+  await deleteB50CoverRecords(staleIds);
+}
+
+function getB50TopResults() {
+  return results
+    .filter(r => r.rating !== undefined && !isNaN(r.rating) && r.stable !== false)
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, TOP_N);
+}
+
+async function getB50CoverThumb(chartId, sourceUrl) {
+  const key = String(chartId);
+  const url = sourceUrl || NO_COVER_URL;
+
+  // 占位图很轻，直接处理，不占用持久缓存
+  if (url === NO_COVER_URL) {
+    return makeCoverThumb(url, B50_COVER_WIDTH, B50_COVER_HEIGHT);
+  }
+
+  await ensureB50CoverMemory();
+
+  const cached = b50CoverMemory.get(key);
+  if (cached && cached.sourceUrl === url && cached.dataUrl &&
+      cached.width === B50_COVER_WIDTH && cached.height === B50_COVER_HEIGHT) {
+    return cached.dataUrl;
+  }
+
+  if (b50CoverPending.has(key)) return b50CoverPending.get(key);
+
+  const pending = (async () => {
+    const thumb = await makeCoverThumb(url, B50_COVER_WIDTH, B50_COVER_HEIGHT);
+    if (!thumb) return null;
+
+    const record = {
+      chartId: key,
+      sourceUrl: url,
+      dataUrl: thumb,
+      width: B50_COVER_WIDTH,
+      height: B50_COVER_HEIGHT,
+      updatedAt: Date.now()
+    };
+    b50CoverMemory.set(key, record);
+    // 不阻塞导出；即使写入失败，当前内存缓存也已经可用
+    persistB50CoverRecord(record);
+    return thumb;
+  })();
+
+  b50CoverPending.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (b50CoverPending.get(key) === pending) b50CoverPending.delete(key);
+  }
+}
+
+function getCachedB50CoverThumb(chartId) {
+  const cached = b50CoverMemory.get(String(chartId));
+  if (!cached || !cached.dataUrl) return null;
+  if (cached.width !== B50_COVER_WIDTH || cached.height !== B50_COVER_HEIGHT) return null;
+  return cached.dataUrl;
+}
+
+function scheduleB50CoverPreload(delay = B50_COVER_PRELOAD_DELAY) {
+  const token = ++b50CoverPreloadToken;
+
+  if (b50CoverPreloadTimer) {
+    clearTimeout(b50CoverPreloadTimer);
+    b50CoverPreloadTimer = null;
+  }
+
+  // 没有有效的 B50 时不预热，也不清理已有缓存
+  if (getB50TopResults().length === 0) return;
+
+  b50CoverPreloadTimer = setTimeout(() => {
+    b50CoverPreloadTimer = null;
+    // 串行执行预热，避免旧一轮的清理与新一轮写入互相覆盖
+    b50CoverPreloadQueue = b50CoverPreloadQueue
+      .then(() => preloadB50Covers(token))
+      .catch(e => console.warn('B50 曲绘预加载异常:', e));
+  }, Math.max(0, Number(delay) || 0));
+}
+
+function abortB50CoverPreload() {
+  b50CoverPreloadToken++;
+  if (b50CoverPreloadTimer) {
+    clearTimeout(b50CoverPreloadTimer);
+    b50CoverPreloadTimer = null;
+  }
+}
+
+async function preloadB50Covers(token) {
+  if (token !== b50CoverPreloadToken) return;
+
+  const top = getB50TopResults();
+  if (!top.length) return;
+
+  await ensureB50CoverMemory();
+  if (token !== b50CoverPreloadToken) return;
+
+  // 同一张曲绘可能在同一份 B50 中出现多次，只预加载一次
+  const targets = [];
+  const seen = new Set();
+  top.forEach(r => {
+    const song = SONG_DATA[r.index];
+    if (!song || !song.chartId) return;
+    const id = String(song.chartId);
+    if (seen.has(id)) return;
+    seen.add(id);
+    targets.push(id);
+  });
+  if (!targets.length) return;
+
+  let nextIndex = 0;
+  let loadedCount = 0;
+  const worker = async () => {
+    while (true) {
+      if (token !== b50CoverPreloadToken) return;
+      const index = nextIndex++;
+      if (index >= targets.length) return;
+
+      // 查询成绩期间让出网络，查询结束后自动继续
+      while (illustSuspended && token === b50CoverPreloadToken) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (token !== b50CoverPreloadToken) return;
+
+      const chartId = targets[index];
+      try {
+        const sourceUrl = (await getIllustration(chartId, 'thumb')) || NO_COVER_URL;
+        if (token !== b50CoverPreloadToken) return;
+        const thumb = await getB50CoverThumb(chartId, sourceUrl);
+        if (thumb) loadedCount++;
+      } catch (e) {
+        console.warn('B50 曲绘预加载失败:', chartId, e);
+      }
+    }
+  };
+
+  const workerCount = Math.min(B50_COVER_PRELOAD_CONCURRENCY, targets.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  if (token !== b50CoverPreloadToken) return;
+
+  await pruneB50CoverCache(new Set(targets), token);
+  console.log(`📷 B50 曲绘预加载完成：${loadedCount}/${targets.length}`);
+}
+
 async function exportB50Image() {
   if (typeof html2canvas === 'undefined') {
   alert('核心组件(html2canvas)加载失败，请刷新页面或检查网络后重试！');
@@ -117,9 +419,7 @@ async function exportB50Image() {
     return;
   }
 
-  const validResults = results.filter(r => r.rating !== undefined && !isNaN(r.rating) && r.stable !== false);
-  const sorted = [...validResults].sort((a, b) => b.rating - a.rating);
-  const top50 = sorted.slice(0, TOP_N);
+  const top50 = getB50TopResults();
 
   if (top50.length === 0) {
     alert('没有可导出的成绩数据。');
@@ -143,6 +443,7 @@ async function exportB50Image() {
     return;
   }
   // 暂停后台曲绘预加载和页面曲绘加载，但保留请求队列给导出流程取图
+  abortB50CoverPreload();
   abortPreload();
   suspendIllustLoading(false);
   // 按钮进入状态
@@ -166,17 +467,26 @@ async function exportB50Image() {
   updateProgress(0, `准备导出 B50 · 0/${totalItems}`);
 
   try {
+    // 先把持久缓存读入内存，命中时连 getIllustration 都可以跳过
+    await ensureB50CoverMemory();
+
     // 预加载所有曲绘的 thumb 版本，构建 items
     const items = [];
     for (let i = 0; i < top50.length; i++) {
       const r = top50[i];
       const song = SONG_DATA[r.index];
-      let coverUrl = NO_COVER_URL;
+      let cover = null;
       if (song && song.chartId) {
-        coverUrl = (await getIllustration(song.chartId, 'thumb')) || NO_COVER_URL;
+        // 已预热的曲绘直接使用，避免逐张等待 manifest/API
+        cover = getCachedB50CoverThumb(song.chartId);
+        if (!cover) {
+          const coverUrl = (await getIllustration(song.chartId, 'thumb')) || NO_COVER_URL;
+          // 没有缓存时再现场处理并写入缓存
+          cover = await getB50CoverThumb(song.chartId, coverUrl);
+        }
       }
       // 预先裁成 16:9，确保曲绘完整铺满卡片，且不受 html2canvas object-fit 兼容性影响
-      const cover = await makeCoverThumb(coverUrl, 720, 405);
+      if (!cover) cover = await makeCoverThumb(NO_COVER_URL, 720, 405);
       const illustUrl = cover || NO_COVER_URL;
       items.push({
         rank: i + 1,
