@@ -40,7 +40,7 @@ async function makeCoverThumb(url, width = 720, height = 405, bakeShades = true)
           const canvas = document.createElement('canvas');
           canvas.width = width;
           canvas.height = height;
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
 
@@ -121,6 +121,7 @@ const B50_COVER_WIDTH = 720;
 const B50_COVER_HEIGHT = 405;
 const B50_COVER_PRELOAD_DELAY = 1200;
 const B50_COVER_PRELOAD_CONCURRENCY = 3;
+const B50_NO_COVER_KEY = '__b50_no_cover__';
 
 const b50CoverMemory = new Map();       // chartId -> 缓存记录
 const b50CoverPending = new Map();      // chartId -> 正在处理的 Promise
@@ -257,7 +258,10 @@ async function pruneB50CoverCache(keepIds, token) {
   await ensureB50CoverMemory();
   if (token !== undefined && token !== b50CoverPreloadToken) return;
 
-  const staleIds = [...b50CoverMemory.keys()].filter(id => !keepIds.has(id));
+  // 占位图不属于任何谱面，但需要跨 B50 保留
+  const protectedIds = new Set(keepIds);
+  protectedIds.add(B50_NO_COVER_KEY);
+  const staleIds = [...b50CoverMemory.keys()].filter(id => !protectedIds.has(id));
   if (!staleIds.length) return;
   if (token !== undefined && token !== b50CoverPreloadToken) return;
 
@@ -276,9 +280,9 @@ async function getB50CoverThumb(chartId, sourceUrl) {
   const key = String(chartId);
   const url = sourceUrl || NO_COVER_URL;
 
-  // 占位图很轻，直接处理，不占用持久缓存
+  // 占位图也走同一条缓存路径，导出时不再重复加载
   if (url === NO_COVER_URL) {
-    return makeCoverThumb(url, B50_COVER_WIDTH, B50_COVER_HEIGHT);
+    return getB50PlaceholderThumb();
   }
 
   await ensureB50CoverMemory();
@@ -305,6 +309,39 @@ async function getB50CoverThumb(chartId, sourceUrl) {
     };
     b50CoverMemory.set(key, record);
     // 不阻塞导出；即使写入失败，当前内存缓存也已经可用
+    persistB50CoverRecord(record);
+    return thumb;
+  })();
+
+  b50CoverPending.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (b50CoverPending.get(key) === pending) b50CoverPending.delete(key);
+  }
+}
+
+async function getB50PlaceholderThumb() {
+  const key = B50_NO_COVER_KEY;
+  await ensureB50CoverMemory();
+
+  const cached = getCachedB50CoverThumb(key);
+  if (cached) return cached;
+  if (b50CoverPending.has(key)) return b50CoverPending.get(key);
+
+  const pending = (async () => {
+    const thumb = await makeCoverThumb(NO_COVER_URL, B50_COVER_WIDTH, B50_COVER_HEIGHT);
+    if (!thumb) return null;
+
+    const record = {
+      chartId: key,
+      sourceUrl: NO_COVER_URL,
+      dataUrl: thumb,
+      width: B50_COVER_WIDTH,
+      height: B50_COVER_HEIGHT,
+      updatedAt: Date.now()
+    };
+    b50CoverMemory.set(key, record);
     persistB50CoverRecord(record);
     return thumb;
   })();
@@ -361,6 +398,14 @@ async function preloadB50Covers(token) {
   await ensureB50CoverMemory();
   if (token !== b50CoverPreloadToken) return;
 
+  // 占位图只处理一次，之后无曲绘/无 Phira ID 的谱面直接复用
+  try {
+    await getB50PlaceholderThumb();
+  } catch (e) {
+    console.warn('B50 占位图预加载失败:', e);
+  }
+  if (token !== b50CoverPreloadToken) return;
+
   // 同一张曲绘可能在同一份 B50 中出现多次，只预加载一次
   const targets = [];
   const seen = new Set();
@@ -407,6 +452,37 @@ async function preloadB50Covers(token) {
 
   await pruneB50CoverCache(new Set(targets), token);
   console.log(`📷 B50 曲绘预加载完成：${loadedCount}/${targets.length}`);
+}
+
+// html2canvas 内部会反复 getImageData 做像素采样；临时给 2D 上下文加上
+// willReadFrequently，浏览器会改用更适合频繁读回的 CPU 后端，避免控制台警告。
+async function withWillReadFrequently(fn) {
+  if (typeof HTMLCanvasElement === 'undefined' ||
+      !HTMLCanvasElement.prototype ||
+      typeof HTMLCanvasElement.prototype.getContext !== 'function') {
+    return fn();
+  }
+
+  const proto = HTMLCanvasElement.prototype;
+  const original = proto.getContext;
+  let patched = false;
+  try {
+    proto.getContext = function (type, attrs) {
+      if (type === '2d') {
+        attrs = Object.assign({}, attrs, { willReadFrequently: true });
+      }
+      return original.call(this, type, attrs);
+    };
+    patched = proto.getContext !== original;
+  } catch (e) {
+    patched = false;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    if (patched) proto.getContext = original;
+  }
 }
 
 async function exportB50Image() {
@@ -484,6 +560,10 @@ async function exportB50Image() {
           // 没有缓存时再现场处理并写入缓存
           cover = await getB50CoverThumb(song.chartId, coverUrl);
         }
+      } else {
+        // 没有 Phira ID：直接走占位图缓存，不进入谱面查询
+        cover = getCachedB50CoverThumb(B50_NO_COVER_KEY);
+        if (!cover) cover = await getB50PlaceholderThumb();
       }
       // 预先裁成 16:9，确保曲绘完整铺满卡片，且不受 html2canvas object-fit 兼容性影响
       if (!cover) cover = await makeCoverThumb(NO_COVER_URL, 720, 405);
@@ -548,7 +628,7 @@ async function exportB50Image() {
     });
 
     // 先在 2x 下渲染，让文字和细线获得足够的超采样
-    const canvas = await html2canvas(exportContainer, {
+    const canvas = await withWillReadFrequently(() => html2canvas(exportContainer, {
       scale: 2,
       useCORS: true,
       backgroundColor: '#ffffff',
@@ -557,7 +637,7 @@ async function exportB50Image() {
       height: exportContainer.scrollHeight,
       imageTimeout: 3000,
       removeContainer: true,
-    });
+    }));
 
     // 再高质量缩到 2550px 宽（1.5x）作为最终输出：
     // 体积按 1.5x 计算，但文字边缘来自 2x 降采样，比直接 1.5x 渲染更干净
@@ -566,7 +646,7 @@ async function exportB50Image() {
     const outputCanvas = document.createElement('canvas');
     outputCanvas.width = outputWidth;
     outputCanvas.height = outputHeight;
-    const outputCtx = outputCanvas.getContext('2d');
+    const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
     outputCtx.imageSmoothingEnabled = true;
     outputCtx.imageSmoothingQuality = 'high';
     outputCtx.drawImage(canvas, 0, 0, outputWidth, outputHeight);

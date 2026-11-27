@@ -135,3 +135,148 @@ function isValidSongMeta(value) {
 function normalizeSongMeta(value) {
   return isValidSongMeta(value) ? String(value).trim() : '';
 }
+
+// ===== 通用紧凑排序 / 筛选弹层 =====
+// 预览页与开发者页共用；调用方只负责提供字段和 onChange。
+let sortPopoverDefaults = {};
+let sortPopoverValues = {};
+let sortPopoverFields = [];
+let sortPopoverOnChange = null;
+let sortPopoverTitleText = '排序 / 筛选';
+
+function sortPopoverIsOpen() {
+  const overlay = document.getElementById('sortPopoverOverlay');
+  return !!overlay && !overlay.hidden;
+}
+
+function closeSortPopover() {
+  const overlay = document.getElementById('sortPopoverOverlay');
+  if (overlay) overlay.hidden = true;
+  document.querySelectorAll('#previewSortBtn, #devSongSortBtn, #devSegmentSortBtn').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function sortPopoverEmit() {
+  if (typeof sortPopoverOnChange === 'function') {
+    sortPopoverOnChange({ ...sortPopoverValues });
+  }
+}
+
+function renderSortPopover() {
+  const body = document.getElementById('sortPopoverBody');
+  const title = document.getElementById('sortPopoverTitle');
+  if (!body || !title) return;
+  title.textContent = sortPopoverTitleText;
+  body.replaceChildren();
+
+  sortPopoverFields.forEach(field => {
+    const wrap = document.createElement('div');
+    wrap.className = 'sort-field';
+
+    const label = document.createElement('div');
+    label.className = 'sort-field-label';
+    label.textContent = field.label;
+    if (field.type !== 'checkbox') wrap.appendChild(label);
+
+    if (field.type === 'select') {
+      const select = document.createElement('select');
+      select.className = 'sort-select';
+      (field.options || []).forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
+      select.value = sortPopoverValues[field.key];
+      select.addEventListener('change', () => {
+        sortPopoverValues[field.key] = select.value;
+        sortPopoverEmit();
+      });
+      wrap.appendChild(select);
+    } else if (field.type === 'direction') {
+      const group = document.createElement('div');
+      group.className = 'sort-dir-group';
+      [['desc', '降序 ↓'], ['asc', '升序 ↑']].forEach(([value, text]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sort-dir-btn' + (sortPopoverValues[field.key] === value ? ' active' : '');
+        btn.textContent = text;
+        btn.addEventListener('click', () => {
+          sortPopoverValues[field.key] = value;
+          renderSortPopover();
+          sortPopoverEmit();
+        });
+        group.appendChild(btn);
+      });
+      wrap.appendChild(group);
+    } else if (field.type === 'checkbox') {
+      const check = document.createElement('label');
+      check.className = 'sort-check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!sortPopoverValues[field.key];
+      input.addEventListener('change', () => {
+        sortPopoverValues[field.key] = input.checked;
+        sortPopoverEmit();
+      });
+      const text = document.createElement('span');
+      text.textContent = field.label;
+      check.appendChild(input);
+      check.appendChild(text);
+      wrap.replaceChildren(check);
+      if (field.note) {
+        const note = document.createElement('div');
+        note.className = 'sort-note';
+        note.textContent = field.note;
+        wrap.appendChild(note);
+      }
+    }
+
+    body.appendChild(wrap);
+  });
+}
+
+function openSortPopover(config) {
+  const overlay = document.getElementById('sortPopoverOverlay');
+  if (!overlay) return;
+  sortPopoverFields = Array.isArray(config.fields) ? config.fields : [];
+  sortPopoverDefaults = {};
+  sortPopoverValues = {};
+  sortPopoverFields.forEach(field => {
+    sortPopoverDefaults[field.key] = field.value;
+    sortPopoverValues[field.key] = field.value;
+  });
+  sortPopoverOnChange = config.onChange || null;
+  sortPopoverTitleText = config.title || '排序 / 筛选';
+  document.getElementById('sortPopoverBody').replaceChildren();
+  renderSortPopover();
+  overlay.hidden = false;
+  document.querySelectorAll('#previewSortBtn, #devSongSortBtn, #devSegmentSortBtn').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'false');
+  });
+  const trigger = config.trigger;
+  if (trigger) trigger.setAttribute('aria-expanded', 'true');
+}
+
+function initSortPopover() {
+  const overlay = document.getElementById('sortPopoverOverlay');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  document.getElementById('sortPopoverClose').addEventListener('click', closeSortPopover);
+  document.getElementById('sortPopoverDone').addEventListener('click', closeSortPopover);
+  document.getElementById('sortPopoverReset').addEventListener('click', () => {
+    sortPopoverValues = { ...sortPopoverDefaults };
+    renderSortPopover();
+    sortPopoverEmit();
+  });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSortPopover();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sortPopoverIsOpen()) closeSortPopover();
+  });
+}
+
+initSortPopover();

@@ -17,6 +17,7 @@ const DEV_SEG_ORIGINALS = SEG_DATA.map((seg, index) => ({
 }));
 
 let devInitialized = false;
+let devScreen = 'menu';
 let devActiveTab = 'songs';
 let devModalType = null;
 let devEditing = null;
@@ -26,34 +27,71 @@ let devState = {
   songs: { custom: [], deleted: [], edits: {} },
   segments: { custom: [], deleted: [], edits: {} }
 };
+let devSortState = {
+  songs: { mode: 'default', dir: 'desc', status: 'all', hideNoChart: false },
+  segments: { mode: 'default', dir: 'desc', status: 'all', hideNoChart: false }
+};
 
 function devMakeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function devNullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function devHasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function devSongIsComplete(song) {
+  return !!song && !!String(song.name || '').trim() &&
+    song.constant !== null && song.constant !== '' &&
+    Number.isFinite(Number(song.constant)) && Number(song.constant) > 0 &&
+    song.yellowRatio !== null && song.yellowRatio !== '' &&
+    Number.isFinite(Number(song.yellowRatio)) && Number(song.yellowRatio) >= 0 && Number(song.yellowRatio) <= 1;
+}
+
+function devSegmentIsComplete(seg) {
+  return !!seg && !!String(seg.name || '').trim() && !!String(seg.charter || '').trim() &&
+    seg.difficulty !== null && seg.difficulty !== '' &&
+    Number.isFinite(Number(seg.difficulty)) && Number(seg.difficulty) > 0 &&
+    isValidSegmentNotes(seg.notes) &&
+    seg.yellowRatio !== null && seg.yellowRatio !== '' &&
+    Number.isFinite(Number(seg.yellowRatio)) && Number(seg.yellowRatio) >= 0 && Number(seg.yellowRatio) <= 1;
+}
+
 function devNormalizeSong(song, id) {
-  return {
+  const out = {
     name: String(song.name || '').trim(),
-    constant: Number(song.constant),
+    constant: devNullableNumber(song.constant),
     chartId: song.chartId === null || song.chartId === undefined ? null : Number(song.chartId),
-    yellowRatio: Number(song.yellowRatio) || 0,
+    yellowRatio: devNullableNumber(song.yellowRatio),
     stable: song.stable !== false,
     charter: normalizeSongMeta(song.charter),
     composer: normalizeSongMeta(song.composer),
+    pending: song.pending === true,
     _devId: id || song._devId || devMakeId('song')
   };
+  out.pending = out.pending && !devSongIsComplete(out);
+  return out;
 }
 
 function devNormalizeSegment(seg, id) {
-  return {
+  const out = {
     name: String(seg.name || '').trim(),
     charter: String(seg.charter || '').trim(),
     chartId: seg.chartId === null || seg.chartId === undefined ? null : Number(seg.chartId),
-    notes: Array.isArray(seg.notes) ? seg.notes.slice(0, 4).map(n => (n === null || n === undefined ? null : Number(n))) : [null, null, null, null],
-    difficulty: seg.difficulty === null || seg.difficulty === undefined ? null : Number(seg.difficulty),
-    yellowRatio: Number(seg.yellowRatio) || 0,
+    notes: Array.isArray(seg.notes) ? seg.notes.slice(0, 4).map(n => (n === null || n === undefined || n === '' ? null : Number(n))) : [null, null, null, null],
+    difficulty: devNullableNumber(seg.difficulty),
+    yellowRatio: devNullableNumber(seg.yellowRatio),
+    pending: seg.pending === true,
     _devId: id || seg._devId || devMakeId('seg')
   };
+  out.pending = out.pending && !devSegmentIsComplete(out);
+  return out;
 }
 
 function devLoadState() {
@@ -109,6 +147,10 @@ function devSaveState() {
         constant: s.constant,
         chartId: s.chartId,
         yellowRatio: s.yellowRatio,
+        stable: s.stable !== false,
+        charter: s.charter || '',
+        composer: s.composer || '',
+        pending: s.pending === true,
         _devId: s._devId
       })),
       deleted: devState.songs.deleted.slice(),
@@ -122,6 +164,7 @@ function devSaveState() {
         notes: s.notes,
         difficulty: s.difficulty,
         yellowRatio: s.yellowRatio,
+        pending: s.pending === true,
         _devId: s._devId
       })),
       deleted: devState.segments.deleted.slice(),
@@ -179,12 +222,13 @@ function devGetSegments() {
 function devSongFields(song) {
   return {
     name: String(song.name || '').trim(),
-    constant: Number(song.constant),
+    constant: devNullableNumber(song.constant),
     chartId: devChartId(song.chartId),
-    yellowRatio: Number(song.yellowRatio) || 0,
+    yellowRatio: devNullableNumber(song.yellowRatio),
     stable: song.stable !== false,
     charter: normalizeSongMeta(song.charter),
-    composer: normalizeSongMeta(song.composer)
+    composer: normalizeSongMeta(song.composer),
+    pending: song.pending === true
   };
 }
 
@@ -202,11 +246,18 @@ function devNormalizeName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function devNumbersEqual(a, b) {
+  const av = devNullableNumber(a);
+  const bv = devNullableNumber(b);
+  if (av === null || bv === null) return av === bv;
+  return Math.abs(av - bv) < 1e-12;
+}
+
 function devSongsExactlyEqual(a, b) {
   return devChartId(a.chartId) === devChartId(b.chartId) &&
     String(a.name || '').trim() === String(b.name || '').trim() &&
-    Math.abs(Number(a.constant) - Number(b.constant)) < 1e-9 &&
-    Math.abs(Number(a.yellowRatio) - Number(b.yellowRatio)) < 1e-12 &&
+    devNumbersEqual(a.constant, b.constant) &&
+    devNumbersEqual(a.yellowRatio, b.yellowRatio) &&
     (a.stable !== false) === (b.stable !== false) &&
     normalizeSongMeta(a.charter) === normalizeSongMeta(b.charter) &&
     normalizeSongMeta(a.composer) === normalizeSongMeta(b.composer);
@@ -245,7 +296,9 @@ function devSongView() {
   // 没有 Phira ID 的条目退化为“同名 + 同定数”判断
   const nameGroups = new Map();
   all.forEach(song => {
-    const key = `${devNormalizeName(song.name)}|${Number(song.constant)}`;
+    const name = devNormalizeName(song.name);
+    if (!name || song.constant === null || song.constant === undefined || song.constant === '') return;
+    const key = `${name}|${Number(song.constant)}`;
     if (!nameGroups.has(key)) nameGroups.set(key, []);
     nameGroups.get(key).push(song);
   });
@@ -303,10 +356,11 @@ function devSegmentFields(seg) {
     charter: String(seg.charter || '').trim(),
     chartId: devChartId(seg.chartId),
     notes: Array.isArray(seg.notes)
-      ? seg.notes.slice(0, 4).map(n => (n === null || n === undefined ? null : Number(n)))
+      ? seg.notes.slice(0, 4).map(n => (n === null || n === undefined || n === '' ? null : Number(n)))
       : [null, null, null, null],
-    difficulty: Number(seg.difficulty),
-    yellowRatio: Number(seg.yellowRatio) || 0
+    difficulty: devNullableNumber(seg.difficulty),
+    yellowRatio: devNullableNumber(seg.yellowRatio),
+    pending: seg.pending === true
   };
 }
 
@@ -322,13 +376,13 @@ function devSegmentsExactlyEqual(a, b) {
   if (devChartId(a.chartId) !== devChartId(b.chartId)) return false;
   if (String(a.name || '').trim() !== String(b.name || '').trim()) return false;
   if (String(a.charter || '').trim() !== String(b.charter || '').trim()) return false;
-  if (Math.abs(Number(a.difficulty) - Number(b.difficulty)) >= 1e-9) return false;
-  if (Math.abs(Number(a.yellowRatio) - Number(b.yellowRatio)) >= 1e-12) return false;
+  if (!devNumbersEqual(a.difficulty, b.difficulty)) return false;
+  if (!devNumbersEqual(a.yellowRatio, b.yellowRatio)) return false;
   const an = Array.isArray(a.notes) ? a.notes : [];
   const bn = Array.isArray(b.notes) ? b.notes : [];
   for (let i = 0; i < 4; i++) {
-    const av = an[i] === null || an[i] === undefined ? null : Number(an[i]);
-    const bv = bn[i] === null || bn[i] === undefined ? null : Number(bn[i]);
+    const av = an[i] === null || an[i] === undefined || an[i] === '' ? null : Number(an[i]);
+    const bv = bn[i] === null || bn[i] === undefined || bn[i] === '' ? null : Number(bn[i]);
     if (av !== bv) return false;
   }
   return true;
@@ -395,7 +449,10 @@ function devSegmentView() {
 
   const nameGroups = new Map();
   all.forEach(seg => {
-    const key = `${devNormalizeName(seg.name)}|${devNormalizeName(seg.charter)}`;
+    const name = devNormalizeName(seg.name);
+    const charter = devNormalizeName(seg.charter);
+    if (!name || !charter) return;
+    const key = `${name}|${charter}`;
     if (!nameGroups.has(key)) nameGroups.set(key, []);
     nameGroups.get(key).push(seg);
   });
@@ -439,19 +496,22 @@ function devSongCard(song) {
   const isNew = song._devSource === 'custom';
   const isEdited = !!song._devEdited;
   const isDuplicate = !!song._devDuplicate;
+  const isPending = song.pending === true;
   const isStable = song.stable !== false;
-  const accent = getConstColor(Number(song.constant));
+  const accent = song.constant == null ? '#94a3b8' : getConstColor(Number(song.constant));
   const key = isNew ? song._devId : song.internalId;
   const badgeClass = isNew ? 'new' : (isEdited ? 'edited' : 'original');
   const badgeText = isNew ? '新增' : (isEdited ? '已修改' : '原有');
+  const displayName = song.name || '未命名谱面';
   return `
-    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''} ${isDuplicate ? 'is-duplicate' : ''}" style="--dev-accent:${accent};">
+    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''} ${isPending ? 'is-pending' : ''} ${isDuplicate ? 'is-duplicate' : ''}" style="--dev-accent:${accent};">
       ${artBoxHtml(song.chartId || '')}
       <div class="dev-item-main">
         <div class="dev-item-title">
-          <span class="dev-item-name" title="${escapeHtml(song.name)}">${escapeHtml(song.name)}</span>
+          <span class="dev-item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
           <span class="dev-badge ${badgeClass}">${badgeText}</span>
           <span class="dev-badge ${isStable ? 'stable' : 'unstable'}">${isStable ? 'Stable' : '非 Stable'}</span>
+          ${isPending ? '<span class="dev-badge pending">待定</span>' : ''}
           ${isDuplicate ? '<span class="dev-badge duplicate">重复</span>' : ''}
         </div>
         <div class="dev-item-meta">
@@ -474,17 +534,20 @@ function devSegmentCard(seg) {
   const isNew = seg._devSource === 'custom';
   const isEdited = !!seg._devEdited;
   const isDuplicate = !!seg._devDuplicate;
-  const accent = getConstColor(Number(seg.difficulty));
+  const isPending = seg.pending === true;
+  const accent = seg.difficulty == null ? '#94a3b8' : getConstColor(Number(seg.difficulty));
   const key = isNew ? seg._devId : seg.internalId;
   const badgeClass = isNew ? 'new' : (isEdited ? 'edited' : 'original');
   const badgeText = isNew ? '新增' : (isEdited ? '已修改' : '原有');
+  const displayName = seg.name || '未命名段位';
   return `
-    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''} ${isDuplicate ? 'is-duplicate' : ''}" style="--dev-accent:${accent};">
+    <div class="dev-item ${isNew ? 'is-new' : ''} ${isEdited ? 'is-edited' : ''} ${isPending ? 'is-pending' : ''} ${isDuplicate ? 'is-duplicate' : ''}" style="--dev-accent:${accent};">
       ${artBoxHtml(seg.chartId || '')}
       <div class="dev-item-main">
         <div class="dev-item-title">
-          <span class="dev-item-name" title="${escapeHtml(seg.name)}">${escapeHtml(seg.name)}</span>
+          <span class="dev-item-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
           <span class="dev-badge ${badgeClass}">${badgeText}</span>
+          ${isPending ? '<span class="dev-badge pending">待定</span>' : ''}
           ${isDuplicate ? '<span class="dev-badge duplicate">重复</span>' : ''}
         </div>
         <div class="dev-item-meta">
@@ -508,21 +571,150 @@ function devObserveCovers(container) {
   container.querySelectorAll('.art-box').forEach(el => illustObserver.observe(el));
 }
 
+function devCompareNullableNumbers(a, b, dir) {
+  const av = a === null || a === undefined || a === '' ? null : Number(a);
+  const bv = b === null || b === undefined || b === '' ? null : Number(b);
+  const an = Number.isFinite(av) ? av : null;
+  const bn = Number.isFinite(bv) ? bv : null;
+  if (an === null && bn === null) return 0;
+  if (an === null) return 1;
+  if (bn === null) return -1;
+  return dir === 'asc' ? an - bn : bn - an;
+}
+
+function devSortItems(items, kind, state) {
+  const mode = state.mode || 'default';
+  if (mode === 'default') return items;
+  const dir = state.dir === 'asc' ? 'asc' : 'desc';
+  return items.slice().sort((a, b) => {
+    if (mode === 'name') {
+      const cmp = String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN');
+      return dir === 'asc' ? cmp : -cmp;
+    }
+    if (kind === 'songs') {
+      if (mode === 'constant') return devCompareNullableNumbers(a.constant, b.constant, dir);
+      if (mode === 'ratio') return devCompareNullableNumbers(a.yellowRatio, b.yellowRatio, dir);
+    }
+    if (kind === 'segments') {
+      if (mode === 'difficulty') return devCompareNullableNumbers(a.difficulty, b.difficulty, dir);
+      if (mode === 'ratio') return devCompareNullableNumbers(a.yellowRatio, b.yellowRatio, dir);
+    }
+    return 0;
+  });
+}
+
+function devMatchesStatus(item, state) {
+  const status = state.status || 'all';
+  if (status === 'pending') return item.pending === true;
+  if (status === 'custom') return item._devSource === 'custom';
+  if (status === 'edited') return !!item._devEdited;
+  if (status === 'duplicate') return !!item._devDuplicate;
+  return true;
+}
+
+function devFilterAndSortView(view, kind, state, query) {
+  const q = String(query || '').trim().toLowerCase();
+  const matchesQuery = item => {
+    if (!q) return true;
+    const hay = [item.name, item.chartId, item.charter, item.composer].map(v => String(v ?? '').toLowerCase());
+    return hay.some(v => v.includes(q));
+  };
+  const filtered = view.all.filter(item =>
+    devMatchesStatus(item, state) &&
+    (!state.hideNoChart || devChartId(item.chartId) !== null) &&
+    matchesQuery(item)
+  );
+  const duplicate = filtered.filter(item => item._devDuplicate);
+  const custom = filtered.filter(item => !item._devDuplicate && item._devSource === 'custom');
+  const original = filtered.filter(item => !item._devDuplicate && item._devSource !== 'custom');
+  return [
+    ...devSortItems(duplicate, kind, state),
+    ...devSortItems(custom, kind, state),
+    ...devSortItems(original, kind, state)
+  ];
+}
+
+function devSortSummary(kind, state) {
+  const labels = kind === 'songs'
+    ? { default: '默认', constant: '定数', ratio: '黄键占比', name: '曲名' }
+    : { default: '默认', difficulty: '难度', ratio: '黄键占比', name: '段位名' };
+  const parts = [`${labels[state.mode] || '默认'}${state.mode === 'default' ? '' : (state.dir === 'asc' ? ' ↑' : ' ↓')}`];
+  if (state.status && state.status !== 'all') {
+    const statusLabels = { pending: '仅待定', custom: '仅新增', edited: '仅修改', duplicate: '仅重复' };
+    parts.push(statusLabels[state.status] || '');
+  }
+  if (state.hideNoChart) parts.push('隐藏未上架');
+  return parts.filter(Boolean).join(' · ');
+}
+
+function devUpdateSortButton(kind) {
+  const btn = $(kind === 'segments' ? 'devSegmentSortBtn' : 'devSongSortBtn');
+  if (!btn) return;
+  const summary = devSortSummary(kind, devSortState[kind]);
+  const label = btn.querySelector('.dev-sort-label');
+  if (label) label.textContent = summary;
+  btn.title = summary;
+}
+
+function devOpenDevSort(kind) {
+  const state = devSortState[kind];
+  const isSegments = kind === 'segments';
+  const fields = [
+    {
+      type: 'select',
+      key: 'mode',
+      label: '排序方式',
+      value: state.mode,
+      options: isSegments
+        ? [{ value: 'default', label: '默认顺序' }, { value: 'difficulty', label: '难度' }, { value: 'ratio', label: '黄键占比' }, { value: 'name', label: '段位名' }]
+        : [{ value: 'default', label: '默认顺序' }, { value: 'constant', label: '定数' }, { value: 'ratio', label: '黄键占比' }, { value: 'name', label: '曲名' }]
+    },
+    { type: 'direction', key: 'dir', value: state.dir },
+    {
+      type: 'select',
+      key: 'status',
+      label: '筛选状态',
+      value: state.status,
+      options: [
+        { value: 'all', label: '全部' },
+        { value: 'pending', label: '待定' },
+        { value: 'custom', label: '新增' },
+        { value: 'edited', label: '已修改' },
+        { value: 'duplicate', label: '重复' }
+      ]
+    },
+    { type: 'checkbox', key: 'hideNoChart', label: '隐藏未上架', value: state.hideNoChart, note: '隐藏没有 Phira ID 的条目' }
+  ];
+  openSortPopover({
+    title: `${isSegments ? '段位' : '谱面'}排序 / 筛选`,
+    trigger: $(isSegments ? 'devSegmentSortBtn' : 'devSongSortBtn'),
+    fields,
+    onChange(values) {
+      state.mode = values.mode;
+      state.dir = values.dir;
+      state.status = values.status;
+      state.hideNoChart = !!values.hideNoChart;
+      devUpdateSortButton(kind);
+      devRender();
+    }
+  });
+}
+
 function devRenderSongs() {
   const list = $('devSongList');
   if (!list) return;
   const view = devSongView();
   const all = view.all;
   const q = ($('devSongSearch')?.value || '').trim().toLowerCase();
-  const source = view.ordered;
-  const items = q
-    ? source.filter(s => String(s.name || '').toLowerCase().includes(q) || String(s.chartId || '').includes(q))
-    : source;
+  const state = devSortState.songs;
+  const items = devFilterAndSortView(view, 'songs', state, q);
 
   const deletedCount = DEV_SONG_ORIGINALS.length - (all.length - devState.songs.custom.length);
   const editedCount = Object.keys(devState.songs.edits || {}).length;
   const duplicateCount = view.duplicates.length;
-  $('devSongCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.songs.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}${duplicateCount ? ` · 重复 ${duplicateCount}` : ''}`;
+  const pendingCount = all.filter(s => s.pending).length;
+  $('devSongCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.songs.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}${pendingCount ? ` · 待定 ${pendingCount}` : ''}${duplicateCount ? ` · 重复 ${duplicateCount}` : ''}`;
+  devUpdateSortButton('songs');
 
   const hint = $('devSongDuplicateHint');
   if (hint) {
@@ -547,17 +739,15 @@ function devRenderSegments() {
   const view = devSegmentView();
   const all = view.all;
   const q = ($('devSegmentSearch')?.value || '').trim().toLowerCase();
-  const source = view.ordered;
-  const items = q
-    ? source.filter(s => String(s.name || '').toLowerCase().includes(q) ||
-        String(s.charter || '').toLowerCase().includes(q) ||
-        String(s.chartId || '').includes(q))
-    : source;
+  const state = devSortState.segments;
+  const items = devFilterAndSortView(view, 'segments', state, q);
 
   const deletedCount = DEV_SEG_ORIGINALS.length - (all.length - devState.segments.custom.length);
   const editedCount = Object.keys(devState.segments.edits || {}).length;
   const duplicateCount = view.duplicates.length;
-  $('devSegmentCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.segments.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}${duplicateCount ? ` · 重复 ${duplicateCount}` : ''}`;
+  const pendingCount = all.filter(s => s.pending).length;
+  $('devSegmentCount').textContent = `${q ? `${items.length} / ` : ''}${all.length} 条 · 新增 ${devState.segments.custom.length} · 修改 ${editedCount} · 删除 ${deletedCount}${pendingCount ? ` · 待定 ${pendingCount}` : ''}${duplicateCount ? ` · 重复 ${duplicateCount}` : ''}`;
+  devUpdateSortButton('segments');
 
   const hint = $('devSegmentDuplicateHint');
   if (hint) {
@@ -592,6 +782,23 @@ function devSetTab(type) {
   devRender();
 }
 
+// 开发者选项内部一级菜单：功能选择 / 谱面数据管理 / 谱面文件读取
+function devShowScreen(screen) {
+  devScreen = ['manager', 'importer'].includes(screen) ? screen : 'menu';
+  const screens = {
+    menu: $('devMenuScreen'),
+    manager: $('devManagerScreen'),
+    importer: $('devImportScreen')
+  };
+  Object.entries(screens).forEach(([name, el]) => {
+    if (el) el.hidden = name !== devScreen;
+  });
+  if (devScreen === 'importer' && typeof devFileImportRender === 'function') {
+    devFileImportRender();
+  }
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
 function devToast(message) {
   let el = $('devToast');
   if (!el) {
@@ -618,16 +825,30 @@ function devGetSongStable() {
   return active ? active.dataset.devStableValue === 'true' : false;
 }
 
+function devSetPending(value) {
+  const on = !!value;
+  const btn = $('devPendingToggle');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  $('devPendingText').textContent = on ? '开启' : '关闭';
+}
+
+function devGetPending() {
+  return $('devPendingToggle')?.getAttribute('aria-pressed') === 'true';
+}
+
 function devResetForm() {
   $('devForm').reset();
   $('devFormError').classList.remove('visible');
   $('devFormError').textContent = '';
   $('devSongFields').hidden = devModalType !== 'songs';
   $('devSegmentFields').hidden = devModalType !== 'segments';
+  $('devSongStableField').hidden = devModalType !== 'songs';
   $('devSegTotal').value = '0';
   $('devSegRatio').value = '';
   $('devSongRatio').value = '';
   devSetSongStable(false);
+  devSetPending(false);
 }
 
 function devFillFormFromItem(type, item) {
@@ -641,6 +862,7 @@ function devFillFormFromItem(type, item) {
       ? String(Number((Number(item.yellowRatio) * 100).toFixed(8)))
       : '';
     devSetSongStable(item.stable !== false);
+    devSetPending(item.pending === true);
     return;
   }
 
@@ -648,10 +870,11 @@ function devFillFormFromItem(type, item) {
   $('devSegCharter').value = item.charter || '';
   $('devSegDifficulty').value = item.difficulty != null ? item.difficulty : '';
   $('devSegChartId').value = item.chartId != null ? item.chartId : '';
-  const notes = Array.isArray(item.notes) ? item.notes : [0, 0, 0, 0];
+  const notes = Array.isArray(item.notes) ? item.notes : [null, null, null, null];
   ['devSegN1', 'devSegN2', 'devSegN3', 'devSegN4'].forEach((id, i) => {
-    $(id).value = notes[i] == null ? 0 : notes[i];
+    $(id).value = notes[i] == null ? '' : notes[i];
   });
+  devSetPending(item.pending === true);
   devUpdateSegTotal();
   $('devSegRatio').value = item.yellowRatio != null
     ? String(Number((Number(item.yellowRatio) * 100).toFixed(8)))
@@ -671,6 +894,7 @@ function devOpenModal(type, editItem = null) {
   $('devModalTitle').textContent = `${isEdit ? '修改' : '新增'}${devModalType === 'segments' ? '段位' : '谱面'}`;
   $('devFormSubmit').textContent = isEdit ? '保存修改' : (devModalType === 'segments' ? '添加段位' : '添加谱面');
   devResetForm();
+  $('devSongStableField').hidden = devModalType === 'segments';
   if (editItem) devFillFormFromItem(devModalType, editItem);
   $('devModal').hidden = false;
   setTimeout(() => {
@@ -748,90 +972,138 @@ function devCalcSegRatio(silent = false) {
 }
 
 function devReadSongForm() {
+  const allowPending = devGetPending();
   const name = $('devSongName').value.trim();
-  const constant = Number($('devSongConstant').value);
+  const constantRaw = String($('devSongConstant').value || '').trim();
   const chartId = devParseChartId($('devSongChartId').value);
-  if (!name) {
+
+  let constant = null;
+  if (constantRaw !== '') {
+    constant = Number(constantRaw);
+    if (!Number.isFinite(constant) || constant <= 0) {
+      devShowError('定数必须是大于 0 的数字。');
+      return null;
+    }
+  }
+  if (!name && !allowPending) {
     devShowError('请填写曲名。');
     return null;
   }
-  if (!Number.isFinite(constant) || constant <= 0) {
+  if (constant === null && !allowPending) {
     devShowError('请填写有效的定数（大于 0）。');
     return null;
   }
 
+  const ratioRaw = String($('devSongRatio').value || '').trim();
   let ratio = devReadNumber($('devSongRatio'));
+  if (ratioRaw !== '' && ratio === null) {
+    devShowError('黄键占比必须是数字。');
+    return null;
+  }
   if (ratio === null) {
     devCalcSongRatio(true);
     ratio = devReadNumber($('devSongRatio'));
   }
-  if (ratio === null || ratio < 0 || ratio > 100) {
+  if (ratio !== null && (ratio < 0 || ratio > 100)) {
+    devShowError('请填写 0~100 之间的黄键占比。');
+    return null;
+  }
+  if (ratio === null && !allowPending) {
     devShowError('请填写 0~100 之间的黄键占比。');
     return null;
   }
 
-  return {
+  const data = {
     name,
     constant,
     chartId,
-    yellowRatio: Number((ratio / 100).toFixed(12)),
+    yellowRatio: ratio === null ? null : Number((ratio / 100).toFixed(12)),
     stable: devGetSongStable(),
     charter: normalizeSongMeta($('devSongCharter').value),
     composer: normalizeSongMeta($('devSongComposer').value)
   };
+  data.pending = allowPending && !devSongIsComplete(data);
+  return data;
 }
 
 function devReadSegmentForm() {
+  const allowPending = devGetPending();
   const name = $('devSegName').value.trim();
   const charter = $('devSegCharter').value.trim();
-  const difficulty = Number($('devSegDifficulty').value);
+  const difficultyRaw = String($('devSegDifficulty').value || '').trim();
   const chartId = devParseChartId($('devSegChartId').value);
 
-  if (!name) {
+  if (!name && !allowPending) {
     devShowError('请填写段位名称。');
     return null;
   }
-  if (!charter) {
+  if (!charter && !allowPending) {
     devShowError('请填写谱师。');
     return null;
   }
-  if (!Number.isFinite(difficulty) || difficulty <= 0) {
+
+  let difficulty = null;
+  if (difficultyRaw !== '') {
+    difficulty = Number(difficultyRaw);
+    if (!Number.isFinite(difficulty) || difficulty <= 0) {
+      devShowError('段位难度必须是大于 0 的数字。');
+      return null;
+    }
+  }
+  if (difficulty === null && !allowPending) {
     devShowError('请填写有效的段位难度（大于 0）。');
     return null;
   }
 
   const notes = ['devSegN1', 'devSegN2', 'devSegN3', 'devSegN4'].map(id => {
     const raw = String($(id).value || '').trim();
-    if (raw === '') return 0;
-    return Number(raw);
+    if (raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0) return NaN;
+    return n;
   });
-  if (notes.some(n => !Number.isInteger(n) || n < 0)) {
+  if (notes.some(n => Number.isNaN(n))) {
     devShowError('四首物量必须是非负整数（允许 0）。');
     return null;
   }
-  if (!notes.some(n => n > 0)) {
-    devShowError('至少需要一首单曲的物量大于 0。');
+  if (!allowPending && notes.some(n => n === null)) {
+    devShowError('请填写四首单曲的物量（允许 0）。');
     return null;
   }
 
+  const ratioRaw = String($('devSegRatio').value || '').trim();
   let ratio = devReadNumber($('devSegRatio'));
+  if (ratioRaw !== '' && ratio === null) {
+    devShowError('黄键占比必须是数字。');
+    return null;
+  }
   if (ratio === null) {
     devCalcSegRatio(true);
     ratio = devReadNumber($('devSegRatio'));
   }
-  if (ratio === null || ratio < 0 || ratio > 100) {
+  if (ratio !== null && (ratio < 0 || ratio > 100)) {
+    devShowError('请填写 0~100 之间的黄键占比。');
+    return null;
+  }
+  if (ratio === null && !allowPending) {
     devShowError('请填写 0~100 之间的黄键占比。');
     return null;
   }
 
-  return {
+  const data = {
     name,
     charter,
     chartId,
     notes,
     difficulty,
-    yellowRatio: Number((ratio / 100).toFixed(12))
+    yellowRatio: ratio === null ? null : Number((ratio / 100).toFixed(12))
   };
+  if (!allowPending && !devSegmentIsComplete(data)) {
+    devShowError('段位数据不完整：至少需要一首单曲的物量大于 0。');
+    return null;
+  }
+  data.pending = allowPending && !devSegmentIsComplete(data);
+  return data;
 }
 
 function devAddSongFromForm() {
@@ -841,7 +1113,7 @@ function devAddSongFromForm() {
   devSaveState();
   devRenderSongs();
   devCloseModal();
-  devToast('已新增谱面，可在预览列表中查看');
+  devToast(data.pending ? '已新增待定谱面，补齐数据后修改即可解除待定' : '已新增谱面，可在预览列表中查看');
 }
 
 function devAddSegmentFromForm() {
@@ -851,7 +1123,7 @@ function devAddSegmentFromForm() {
   devSaveState();
   devRenderSegments();
   devCloseModal();
-  devToast('已新增段位，可在预览列表中查看');
+  devToast(data.pending ? '已新增待定段位，补齐数据后修改即可解除待定' : '已新增段位，可在预览列表中查看');
 }
 
 function devApplySongEdit() {
@@ -869,7 +1141,7 @@ function devApplySongEdit() {
   devSaveState();
   devRenderSongs();
   devCloseModal();
-  devToast('谱面修改已保存');
+  devToast(data.pending ? '谱面修改已保存，仍为待定状态' : '谱面修改已保存');
 }
 
 function devApplySegmentEdit() {
@@ -887,7 +1159,7 @@ function devApplySegmentEdit() {
   devSaveState();
   devRenderSegments();
   devCloseModal();
-  devToast('段位修改已保存');
+  devToast(data.pending ? '段位修改已保存，仍为待定状态' : '段位修改已保存');
 }
 
 function devDeleteItem(kind, source, id) {
@@ -934,8 +1206,8 @@ function devDownloadText(text, filename) {
 }
 
 function devSongExportText() {
-  // 谱面文件本身按定数降序排列；新增/修改后的谱面也按同一规则插入
-  const items = devGetSongs().slice().sort((a, b) => Number(b.constant) - Number(a.constant));
+  // 待定条目只保留在本地，整份导出时忽略；其余按定数降序排列
+  const items = devGetSongs().filter(s => !s.pending).sort((a, b) => Number(b.constant) - Number(a.constant));
   const lines = [
     '// data-songs.js',
     `// 谱面数据（共 ${items.length} 条）`,
@@ -969,8 +1241,8 @@ function devSongExportText() {
 }
 
 function devSegmentExportText() {
-  // 段位文件现在也按难度降序排列；新增/修改后的段位插入到正确位置
-  const items = devGetSegments().slice().sort((a, b) => {
+  // 待定条目只保留在本地；其余按难度降序排列
+  const items = devGetSegments().filter(s => !s.pending).sort((a, b) => {
     const av = Number.isFinite(Number(a.difficulty)) ? Number(a.difficulty) : -Infinity;
     const bv = Number.isFinite(Number(b.difficulty)) ? Number(b.difficulty) : -Infinity;
     return bv - av;
@@ -1002,13 +1274,15 @@ function devSegmentExportText() {
 }
 
 function devExportSongs() {
+  const pendingCount = devGetSongs().filter(s => s.pending).length;
   devDownloadText(devSongExportText(), 'data-songs.js');
-  devToast('已导出 data-songs.js；替换原文件后请恢复原始数据');
+  devToast(`已导出 data-songs.js${pendingCount ? `（已忽略 ${pendingCount} 条待定）` : ''}；替换原文件后请恢复原始数据`);
 }
 
 function devExportSegments() {
+  const pendingCount = devGetSegments().filter(s => s.pending).length;
   devDownloadText(devSegmentExportText(), 'data-segments.js');
-  devToast('已导出 data-segments.js；替换原文件后请恢复原始数据');
+  devToast(`已导出 data-segments.js${pendingCount ? `（已忽略 ${pendingCount} 条待定）` : ''}；替换原文件后请恢复原始数据`);
 }
 
 // ================= 部分导出 / 导入修改（仅谱面数据） =================
@@ -1074,14 +1348,26 @@ async function devPartialExport() {
 
 function devParseSongFull(raw, label) {
   if (!raw || typeof raw !== 'object') throw new Error(`${label}格式错误。`);
-  const ratio = Number(raw.yellowRatio);
-  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
-    throw new Error(`${label}黄键占比无效。`);
-  }
+  const pending = raw.pending === true;
   const song = devSongFields(raw);
-  song.yellowRatio = ratio;
-  if (!song.name) throw new Error(`${label}缺少曲名。`);
-  if (!Number.isFinite(song.constant) || song.constant <= 0) throw new Error(`${label}定数无效。`);
+
+  if (devHasValue(raw.yellowRatio)) {
+    const ratio = Number(raw.yellowRatio);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+      throw new Error(`${label}黄键占比无效。`);
+    }
+    song.yellowRatio = ratio;
+  } else if (!pending) {
+    throw new Error(`${label}缺少黄键占比。`);
+  }
+
+  if (!song.name && !pending) throw new Error(`${label}缺少曲名。`);
+  if (devHasValue(raw.constant) && (!Number.isFinite(song.constant) || song.constant <= 0)) {
+    throw new Error(`${label}定数无效。`);
+  }
+  if (!devHasValue(raw.constant) && !pending) throw new Error(`${label}缺少定数。`);
+
+  song.pending = pending && !devSongIsComplete(song);
   return song;
 }
 
@@ -1235,20 +1521,36 @@ async function devPartialExportSegments() {
 
 function devParseSegmentFull(raw, label) {
   if (!raw || typeof raw !== 'object') throw new Error(`${label}格式错误。`);
-  const ratio = Number(raw.yellowRatio);
-  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
-    throw new Error(`${label}黄键占比无效。`);
-  }
+  const pending = raw.pending === true;
   const seg = devSegmentFields(raw);
-  seg.yellowRatio = ratio;
-  if (!seg.name) throw new Error(`${label}缺少段位名称。`);
-  if (!seg.charter) throw new Error(`${label}缺少谱师。`);
-  if (!Number.isFinite(seg.difficulty) || seg.difficulty <= 0) throw new Error(`${label}段位难度无效。`);
-  if (!Array.isArray(seg.notes) || seg.notes.length !== 4 ||
-      seg.notes.some(n => !Number.isInteger(n) || n < 0)) {
-    throw new Error(`${label}四首物量必须是非负整数。`);
+
+  if (devHasValue(raw.yellowRatio)) {
+    const ratio = Number(raw.yellowRatio);
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+      throw new Error(`${label}黄键占比无效。`);
+    }
+    seg.yellowRatio = ratio;
+  } else if (!pending) {
+    throw new Error(`${label}缺少黄键占比。`);
   }
-  if (!seg.notes.some(n => n > 0)) throw new Error(`${label}至少需要一首物量大于 0。`);
+
+  if (!seg.name && !pending) throw new Error(`${label}缺少段位名称。`);
+  if (!seg.charter && !pending) throw new Error(`${label}缺少谱师。`);
+  if (devHasValue(raw.difficulty) && (!Number.isFinite(seg.difficulty) || seg.difficulty <= 0)) {
+    throw new Error(`${label}段位难度无效。`);
+  }
+  if (!devHasValue(raw.difficulty) && !pending) throw new Error(`${label}缺少段位难度。`);
+
+  const rawNotes = Array.isArray(raw.notes) ? raw.notes : [];
+  const invalidNote = rawNotes.some(n => devHasValue(n) &&
+    (!Number.isInteger(Number(n)) || Number(n) < 0));
+  if (invalidNote) throw new Error(`${label}四首物量必须是非负整数。`);
+  if (!pending && (!Array.isArray(seg.notes) || seg.notes.length !== 4 ||
+      seg.notes.some(n => n === null) || !seg.notes.some(n => n > 0))) {
+    throw new Error(`${label}四首物量必须完整，且至少一首大于 0。`);
+  }
+
+  seg.pending = pending && !devSegmentIsComplete(seg);
   return seg;
 }
 
@@ -1420,16 +1722,24 @@ function devClearAllState() {
     songs: { custom: [], deleted: [], edits: {} },
     segments: { custom: [], deleted: [], edits: {} }
   };
+  if (typeof devFileImportClearState === 'function') devFileImportClearState();
   if (devInitialized) devRender();
 }
 
 function devInit() {
   if (devInitialized) {
     devRender();
+    devShowScreen('menu');
     return;
   }
   devLoadState();
   devInitialized = true;
+
+  document.querySelectorAll('[data-dev-open]').forEach(btn => {
+    btn.addEventListener('click', () => devShowScreen(btn.dataset.devOpen));
+  });
+  $('devManagerBack').addEventListener('click', () => devShowScreen('menu'));
+  $('devImportBack').addEventListener('click', () => devShowScreen('menu'));
 
   document.querySelectorAll('[data-dev-tab]').forEach(btn => {
     btn.addEventListener('click', () => devSetTab(btn.dataset.devTab));
@@ -1453,6 +1763,9 @@ function devInit() {
   $('devResetSegmentBtn').addEventListener('click', () => devResetType('segments'));
   $('devSongSearch').addEventListener('input', devRenderSongs);
   $('devSegmentSearch').addEventListener('input', devRenderSegments);
+  $('devSongSortBtn').addEventListener('click', () => devOpenDevSort('songs'));
+  $('devSegmentSortBtn').addEventListener('click', () => devOpenDevSort('segments'));
+  $('devPendingToggle').addEventListener('click', () => devSetPending(!devGetPending()));
 
   $('devSongList').addEventListener('click', (e) => {
     const editBtn = e.target.closest('[data-dev-edit]');
@@ -1513,4 +1826,6 @@ function devInit() {
   });
 
   devSetTab('songs');
+  if (typeof devFileImportInit === 'function') devFileImportInit();
+  devShowScreen('menu');
 }

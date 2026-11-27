@@ -66,10 +66,8 @@ const previewList = $('previewList');
 const previewCount = $('previewCount');
 const previewSearchInput = $('previewSearchInput');
 const previewSearchClear = $('previewSearchClear');
-const previewSortSelect = $('previewSortSelect');
-const previewSortWrap = $('previewSortWrap');
-const previewStableSelect = $('previewStableSelect');
-const previewStableWrap = $('previewStableWrap');
+const previewSortBtn = $('previewSortBtn');
+const previewSortLabel = $('previewSortLabel');
 const previewModeButtons = document.querySelectorAll('.preview-mode-btn');
 
 // 详情页 DOM
@@ -300,7 +298,9 @@ let segChartMode = 'line';      // 'line' | 'bar'
 
 let previewSearchQuery = '';
 let previewSortMode = 'rating';   // 'rating' | 'constant'
+let previewSortDir = 'desc';      // 'desc' | 'asc'
 let previewStableMode = 'mix';    // 'mix' | 'top' | 'hide'
+let previewHideNoChart = false;   // 隐藏没有 Phira ID 的条目
 let previewMode = 'single';       // 'single' | 'segment'
 
 // 详情页当前谱面

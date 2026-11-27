@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="styles.css">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-<title>DFC Rating计算 · v5.10.0</title>
+<title>DFC Rating计算 · v5.13.2</title>
 <script src="./html2canvas.min.js"></script>
 </head>
 <body>
@@ -175,21 +175,10 @@
         <input type="text" id="previewSearchInput" placeholder="输入谱面名或 Chart ID 搜索..." autocomplete="off" />
         <button class="search-clear" id="previewSearchClear" title="清空搜索">✕</button>
       </div>
-      <div class="preview-sort-wrap" id="previewSortWrap">
-        <label for="previewSortSelect" class="sort-label">排序</label>
-        <select id="previewSortSelect">
-          <option value="rating">单曲 Rating</option>
-          <option value="constant">难度</option>
-        </select>
-      </div>
-      <div class="preview-sort-wrap" id="previewStableWrap">
-        <label for="previewStableSelect" class="sort-label">Stable</label>
-        <select id="previewStableSelect">
-          <option value="mix">混排</option>
-          <option value="top">非Stable置顶</option>
-          <option value="hide">隐藏非Stable</option>
-        </select>
-      </div>
+      <button class="preview-sort-btn" id="previewSortBtn" type="button" aria-haspopup="dialog" aria-expanded="false">
+        <span class="preview-sort-icon">⇅</span>
+        <span id="previewSortLabel">排序 / 筛选</span>
+      </button>
     </div>
     <!-- 确保列表在工具栏的下方，且没有被嵌套进工具栏里 -->
     <div class="preview-list" id="previewList">
@@ -328,7 +317,7 @@
   <section class="page" data-page="single">
     <div class="single-page-header">
       <h2>📊 单曲数据计算</h2>
-      <span class="badge">v5.10.0</span>
+      <span class="badge">v5.13.2</span>
     </div>
 
     <div class="benchmark-section">
@@ -574,9 +563,39 @@
 
   <!-- 开发者选项 -->
   <section class="page" data-page="dev">
+    <div class="dev-screen" id="devMenuScreen">
+      <div class="dev-header">
+        <div>
+          <h2>🧰 开发者选项</h2>
+          <p class="dev-subtitle">选择一个功能开始。所有修改只保存在当前浏览器，原始数据文件不会被直接覆盖。</p>
+        </div>
+        <span class="dev-local-badge">LOCAL ONLY</span>
+      </div>
+
+      <div class="dev-feature-grid">
+        <button class="dev-feature-card" type="button" data-dev-open="manager">
+          <span class="dev-feature-icon">🗂️</span>
+          <span class="dev-feature-title">谱面数据管理</span>
+          <span class="dev-feature-desc">新增、修改、删除和导出 data-songs.js / data-segments.js，或通过剪贴板同步部分修改。</span>
+          <span class="dev-feature-go">进入管理 →</span>
+        </button>
+        <button class="dev-feature-card" type="button" data-dev-open="importer">
+          <span class="dev-feature-icon">📦</span>
+          <span class="dev-feature-title">从谱面文件读取</span>
+          <span class="dev-feature-desc">拖入 .pez 或 .zip 谱面文件，自动读取谱师、曲师、难度、物量和黄键数量。</span>
+          <span class="dev-feature-go">开始读取 →</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="dev-screen" id="devManagerScreen" hidden>
+      <div class="dev-screen-bar">
+        <button class="dev-back-btn" type="button" id="devManagerBack">← 返回功能选择</button>
+      </div>
+
     <div class="dev-header">
       <div>
-        <h2>🧰 开发者选项</h2>
+        <h2>🗂️ 谱面数据管理</h2>
         <p class="dev-subtitle">可视化维护 data-songs.js / data-segments.js。修改只保存在当前浏览器，原始数据文件不会被直接覆盖。</p>
       </div>
       <span class="dev-local-badge">LOCAL ONLY</span>
@@ -584,7 +603,7 @@
 
     <div class="dev-notice">
       <span>💡</span>
-      <span>新增数据会置顶显示。完成编辑后，点击对应的「导出」按钮下载新的 JS 文件，用它替换网站原文件即可生效。替换后请点击「恢复原始数据」清空本地开发者记录，避免下次重复叠加。部分导出 / 导入修改仅针对谱面数据，可通过剪贴板在设备间传递；导入后会自动检查 Phira ID 重复，并将重复项置顶标记。</span>
+      <span>新增数据会置顶显示。完成编辑后，点击对应的「导出」按钮下载新的 JS 文件，用它替换网站原文件即可生效。替换后请点击「恢复原始数据」清空本地开发者记录，避免下次重复叠加。部分导出 / 导入修改仅针对谱面数据，可通过剪贴板在设备间传递；导入后会自动检查 Phira ID 重复，并将重复项置顶标记。标记为「待定」的条目只保存在本地，整份导出时会被忽略，部分导出时会一并带上。</span>
     </div>
 
     <div class="dev-tabs">
@@ -606,6 +625,9 @@
       <div class="dev-search-bar">
         <span class="search-icon">🔍</span>
         <input type="search" id="devSongSearch" placeholder="搜索曲名或 Phira ID..." autocomplete="off" />
+        <button class="dev-sort-btn" id="devSongSortBtn" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <span>⇅</span><span class="dev-sort-label">排序 / 筛选</span>
+        </button>
       </div>
       <div class="dev-duplicate-hint" id="devSongDuplicateHint" hidden></div>
       <div class="dev-list" id="devSongList"></div>
@@ -625,9 +647,43 @@
       <div class="dev-search-bar">
         <span class="search-icon">🔍</span>
         <input type="search" id="devSegmentSearch" placeholder="搜索段位名、谱师或 Phira ID..." autocomplete="off" />
+        <button class="dev-sort-btn" id="devSegmentSortBtn" type="button" aria-haspopup="dialog" aria-expanded="false">
+          <span>⇅</span><span class="dev-sort-label">排序 / 筛选</span>
+        </button>
       </div>
       <div class="dev-duplicate-hint" id="devSegmentDuplicateHint" hidden></div>
       <div class="dev-list" id="devSegmentList"></div>
+    </div>
+    </div>
+
+    <div class="dev-screen" id="devImportScreen" hidden>
+      <div class="dev-screen-bar">
+        <button class="dev-back-btn" type="button" id="devImportBack">← 返回功能选择</button>
+      </div>
+
+      <div class="dev-header">
+        <div>
+          <h2>📦 从谱面文件读取</h2>
+          <p class="dev-subtitle">支持 .pez / .zip 谱面文件，可一次拖入或选择多个。读取到的谱面没有 Phira ID，固定为非 Stable，并默认保持「待定」。</p>
+        </div>
+        <span class="dev-local-badge">LOCAL ONLY</span>
+      </div>
+
+      <div class="dev-dropzone" id="devFileDrop" role="button" tabindex="0" aria-label="拖入或选择谱面文件">
+        <input type="file" id="devFileInput" accept=".pez,.zip,application/zip" multiple hidden />
+        <span class="dev-drop-icon">📦</span>
+        <span class="dev-drop-title">拖入谱面文件，或点击选择</span>
+        <span class="dev-drop-hint">支持 .pez / .zip，可同时读取多个文件</span>
+      </div>
+
+      <div class="dev-import-status" id="devImportStatus" role="status" aria-live="polite" hidden></div>
+      <div class="dev-import-errors" id="devImportErrors" hidden></div>
+
+      <div class="dev-import-toolbar">
+        <h3>已读取谱面 <span class="dev-import-count" id="devImportedCount">0</span></h3>
+        <button class="btn btn-outline btn-sm" type="button" id="devImportedClear">清空列表</button>
+      </div>
+      <div class="dev-list" id="devImportedList"></div>
     </div>
   </section>
 </main>
@@ -636,13 +692,30 @@
 
 <!-- 开发者选项：新增数据弹窗 -->
 <div class="dev-modal-overlay" id="devModal" hidden>
-  <div class="dev-modal" role="dialog" aria-modal="true" aria-labelledby="devModalTitle">
+  <div class="dev-modal dev-form-modal" role="dialog" aria-modal="true" aria-labelledby="devModalTitle">
     <div class="dev-modal-header">
       <h3 id="devModalTitle">新增谱面</h3>
       <button class="dev-modal-close" id="devModalClose" type="button" aria-label="关闭">×</button>
     </div>
 
-    <form id="devForm" novalidate>
+    <form id="devForm" class="dev-form" novalidate>
+      <div class="dev-modal-topbar">
+        <div class="dev-topbar-stable" id="devSongStableField">
+          <span class="dev-topbar-label">Stable 状态</span>
+          <div class="dev-stable-toggle" id="devSongStableToggle">
+            <button type="button" data-dev-stable-value="true">Stable</button>
+            <button type="button" data-dev-stable-value="false" class="active">非 Stable</button>
+          </div>
+        </div>
+        <div class="dev-pending-box">
+          <span class="dev-topbar-label">待定</span>
+          <button class="dev-pending-toggle" id="devPendingToggle" type="button" aria-pressed="false">
+            <span id="devPendingText">关闭</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="dev-modal-scroll">
       <div id="devSongFields">
         <label class="dev-field">
           <span>曲名 <b>*</b></span>
@@ -668,13 +741,6 @@
             <span>Phira ID</span>
             <input type="text" id="devSongChartId" inputmode="numeric" placeholder="留空或非法自动为 null" autocomplete="off" />
           </label>
-        </div>
-        <div class="dev-field">
-          <span>Stable 状态</span>
-          <div class="dev-stable-toggle" id="devSongStableToggle">
-            <button type="button" data-dev-stable-value="true">Stable</button>
-            <button type="button" data-dev-stable-value="false" class="active">非 Stable</button>
-          </div>
         </div>
         <div class="dev-field-grid dev-ratio-grid">
           <label class="dev-field">
@@ -743,11 +809,14 @@
           <span class="dev-field-hint">总物量由四首单曲物量自动求和。</span>
         </div>
       </div>
+      </div>
 
-      <div class="dev-form-error" id="devFormError" role="alert"></div>
-      <div class="dev-modal-actions">
-        <button type="button" class="btn btn-outline" id="devModalCancel">取消</button>
-        <button type="submit" class="btn btn-primary" id="devFormSubmit">添加到数据</button>
+      <div class="dev-modal-footer">
+        <div class="dev-form-error" id="devFormError" role="alert"></div>
+        <div class="dev-modal-actions">
+          <button type="button" class="btn btn-outline" id="devModalCancel">取消</button>
+          <button type="submit" class="btn btn-primary" id="devFormSubmit">添加到数据</button>
+        </div>
       </div>
     </form>
   </div>
@@ -770,6 +839,21 @@
   </div>
 </div>
 
+<!-- 通用排序 / 筛选弹层 -->
+<div class="sort-popover-overlay" id="sortPopoverOverlay" hidden>
+  <div class="sort-popover" id="sortPopover" role="dialog" aria-modal="true" aria-labelledby="sortPopoverTitle">
+    <div class="sort-popover-head">
+      <span id="sortPopoverTitle">排序 / 筛选</span>
+      <button class="sort-popover-close" id="sortPopoverClose" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="sort-popover-body" id="sortPopoverBody"></div>
+    <div class="sort-popover-actions">
+      <button class="btn btn-outline btn-sm" id="sortPopoverReset" type="button">重置</button>
+      <button class="btn btn-primary btn-sm" id="sortPopoverDone" type="button">完成</button>
+    </div>
+  </div>
+</div>
+
 <script src="data-songs.js" defer></script>
 <script src="data-segments.js" defer></script>
 <script src="rating-core.js" defer></script>
@@ -788,6 +872,7 @@
 <script src="app/segment-export.js" defer></script>
 <script src="app/segment-detail.js" defer></script>
 <script src="app/dev-tools.js" defer></script>
+<script src="app/dev-import.js" defer></script>
 <script src="app/player-page.js" defer></script>
 <script src="app/init.js" defer></script>
 </body>

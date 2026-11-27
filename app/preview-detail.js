@@ -21,6 +21,85 @@ function previewItemStable(item) {
   return item && item.data && item.data.stable !== false;
 }
 
+function previewHasChart(item) {
+  return !!item && item.data && item.data.chartId !== null && item.data.chartId !== undefined;
+}
+
+function previewDirFactor() {
+  return previewSortDir === 'asc' ? 1 : -1;
+}
+
+// null / 非数字始终排在最后，升序降序都不把它们顶到前面
+function previewCompareNullable(a, b, factor) {
+  const av = (a === null || a === undefined || !Number.isFinite(Number(a))) ? null : Number(a);
+  const bv = (b === null || b === undefined || !Number.isFinite(Number(b))) ? null : Number(b);
+  if (av === null && bv === null) return 0;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return (av - bv) * factor;
+}
+
+function previewUpdateSortLabel() {
+  if (!previewSortLabel) return;
+  const primary = previewMode === 'segment'
+    ? (previewSortMode === 'constant' ? '难度' : '段位 Rating')
+    : (previewSortMode === 'constant' ? '难度' : 'Rating');
+  const arrow = previewSortDir === 'asc' ? '↑' : '↓';
+  const filtered = previewHideNoChart || (previewMode !== 'segment' && previewStableMode !== 'mix');
+  previewSortLabel.textContent = `${primary} ${arrow}${filtered ? ' · 已筛选' : ''}`;
+}
+
+function previewOpenSortPopover() {
+  const isSegment = previewMode === 'segment';
+  const fields = [
+    {
+      type: 'select',
+      key: 'mode',
+      label: '排序依据',
+      value: previewSortMode,
+      options: [
+        { value: 'rating', label: isSegment ? '段位 Rating' : '单曲 Rating' },
+        { value: 'constant', label: isSegment ? '段位难度' : '谱面难度' }
+      ]
+    },
+    { type: 'direction', key: 'dir', label: '排列顺序', value: previewSortDir }
+  ];
+  if (!isSegment) {
+    fields.push({
+      type: 'select',
+      key: 'stable',
+      label: '非 Stable 谱面',
+      value: previewStableMode,
+      options: [
+        { value: 'mix', label: '正常混合显示' },
+        { value: 'top', label: '置顶显示' },
+        { value: 'hide', label: '隐藏' }
+      ]
+    });
+  }
+  fields.push({
+    type: 'checkbox',
+    key: 'hideNoChart',
+    label: '隐藏未上架',
+    value: previewHideNoChart,
+    note: '默认关闭；开启后不显示没有填写 Phira ID 的谱面或段位。'
+  });
+
+  openSortPopover({
+    title: isSegment ? '段位排序 / 筛选' : '谱面排序 / 筛选',
+    trigger: previewSortBtn,
+    fields,
+    onChange(values) {
+      previewSortMode = values.mode === 'constant' ? 'constant' : 'rating';
+      previewSortDir = values.dir === 'asc' ? 'asc' : 'desc';
+      if (!isSegment) previewStableMode = ['top', 'hide'].includes(values.stable) ? values.stable : 'mix';
+      previewHideNoChart = !!values.hideNoChart;
+      previewUpdateSortLabel();
+      renderPreview();
+    }
+  });
+}
+
 function applyStableFilter(items) {
   if (previewStableMode === 'hide') return items.filter(previewItemStable);
   if (previewStableMode === 'top') {
@@ -33,9 +112,11 @@ function applyStableFilter(items) {
 }
 
 function previewStableSuffix() {
-  if (previewStableMode === 'top') return '，非Stable置顶';
-  if (previewStableMode === 'hide') return '，已隐藏非Stable';
-  return '';
+  let suffix = '';
+  if (previewStableMode === 'top') suffix = '，非Stable置顶';
+  else if (previewStableMode === 'hide') suffix = '，已隐藏非Stable';
+  if (previewHideNoChart) suffix += '，已隐藏未上架';
+  return suffix;
 }
 
 function renderPreview() {
@@ -59,9 +140,10 @@ function renderPreview() {
     });
 
     if (q) allItems = allItems.filter(item => previewMatches(item.data, q));
+    if (previewHideNoChart) allItems = allItems.filter(previewHasChart);
 
     allItems.sort((a, b) => {
-      const diff = b.data.constant - a.data.constant;
+      const diff = (Number(b.data.constant) - Number(a.data.constant)) * previewDirFactor();
       if (Math.abs(diff) > 0.001) return diff;
       // 定数相同：已游玩的优先
       if (a.type !== b.type) return a.type === 'result' ? -1 : 1;
@@ -81,33 +163,48 @@ function renderPreview() {
       html += renderPreviewItem(item.data, null, item.type);
     });
 
+    const dirText = previewSortDir === 'asc' ? '升序' : '降序';
     previewCount.textContent = q
-      ? `搜索结果 ${totalShown} 首（按难度${previewStableSuffix()}）`
-      : `共 ${totalShown} 首（按难度${previewStableSuffix()}）`;
+      ? `搜索结果 ${totalShown} 首（按难度${dirText}${previewStableSuffix()}）`
+      : `共 ${totalShown} 首（按难度${dirText}${previewStableSuffix()}）`;
   } else {
     // ===== 按单曲 Rating 排序：Stable B50 + 剩余 =====
-    const sorted = [...results].sort((a, b) => b.rating - a.rating);
-    const stableResults = sorted.filter(r => r.stable !== false);
-    let unstableResults = sorted.filter(r => r.stable === false);
-
-    // 非 Stable 谱面不占用 B50 名额
-    let b50 = stableResults.slice(0, 50);
-    let stableRest = stableResults.slice(50);
+    const sortedDesc = [...results].sort((a, b) => b.rating - a.rating);
+    let stableResults = sortedDesc.filter(r => r.stable !== false);
+    let unstableResults = sortedDesc.filter(r => r.stable === false);
     const playedIds = new Set(results.map(r => r.id));
     let untouched = SONG_DATA.filter(s => !playedIds.has(s.internalId));
 
     if (q) {
-      b50 = b50.filter(r => previewMatches(r, q));
-      stableRest = stableRest.filter(r => previewMatches(r, q));
+      stableResults = stableResults.filter(r => previewMatches(r, q));
       unstableResults = unstableResults.filter(r => previewMatches(r, q));
       untouched = untouched.filter(s => previewMatches(s, q));
     }
+    if (previewHideNoChart) {
+      unstableResults = unstableResults.filter(r => r.chartId !== null && r.chartId !== undefined);
+      untouched = untouched.filter(s => s.chartId !== null && s.chartId !== undefined);
+    }
+
+    // 非 Stable 谱面不占用 B50 名额；B50 成员始终按 Rating 最高的 50 张确定。
+    // 隐藏未上架只是显示筛选，不能改变 B50 成员，否则后面的谱面会挤进 B50。
+    let b50Base = stableResults.slice(0, 50);
+    let stableRest = stableResults.slice(50);
+    let b50Display = b50Base.map((r, i) => ({ data: r, rank: i + 1 }));
+    if (previewHideNoChart) {
+      b50Display = b50Display.filter(previewHasChart);
+      stableRest = stableRest.filter(r => r.chartId !== null && r.chartId !== undefined);
+    }
+    if (previewSortDir === 'asc') b50Display = b50Display.slice().reverse();
 
     let restList = [
       ...stableRest.map(r => ({ type: 'result', data: r })),
       ...unstableResults.map(r => ({ type: 'result', data: r })),
       ...untouched.map(s => ({ type: 'untouched', data: s }))
-    ].sort((a, b) => b.data.constant - a.data.constant);
+    ].sort((a, b) => {
+      const ratingDiff = previewCompareNullable(a.data.rating, b.data.rating, previewDirFactor());
+      if (ratingDiff !== 0) return ratingDiff;
+      return previewCompareNullable(a.data.constant, b.data.constant, previewDirFactor());
+    });
 
     if (previewStableMode === 'hide') {
       restList = restList.filter(previewItemStable);
@@ -115,7 +212,7 @@ function renderPreview() {
 
     const unstableRest = restList.filter(item => !previewItemStable(item));
     const stableRestItems = restList.filter(previewItemStable);
-    totalShown = b50.length + restList.length;
+    totalShown = b50Display.length + restList.length;
 
     if (totalShown === 0) {
       previewList.innerHTML = `<div class="preview-empty">未找到匹配「${escapeHtml(q)}」的谱面</div>`;
@@ -128,18 +225,18 @@ function renderPreview() {
       unstableRest.forEach(item => {
         html += renderPreviewItem(item.data, null, item.type);
       });
-      if (b50.length > 0) {
+      if (b50Display.length > 0) {
         html += `<div class="preview-divider"><span>Stable B50</span></div>`;
       }
     }
 
-    b50.forEach((r, i) => { html += renderPreviewItem(r, i + 1, 'result'); });
+    b50Display.forEach(item => { html += renderPreviewItem(item.data, item.rank, 'result'); });
 
     const showRest = previewStableMode === 'top' ? stableRestItems : restList;
     if (showRest.length > 0) {
       const restLabel = previewStableMode === 'top'
-        ? '以下为剩余 Stable 谱面（按定数降序）'
-        : '以下为剩余谱面（按定数降序）';
+        ? `以下为剩余 Stable 谱面（按 Rating ${previewSortDir === 'asc' ? '升序' : '降序'}）`
+        : `以下为剩余谱面（按 Rating ${previewSortDir === 'asc' ? '升序' : '降序'}）`;
       html += `<div class="preview-divider"><span>${restLabel}</span></div>`;
       showRest.forEach(item => {
         html += renderPreviewItem(item.data, null, item.type);
@@ -148,7 +245,7 @@ function renderPreview() {
 
     previewCount.textContent = q
       ? `搜索结果 ${totalShown} 首${previewStableSuffix()}`
-      : `共 ${totalShown} 首（Stable B50: ${b50.length}${previewStableSuffix()}）`;
+      : `共 ${totalShown} 首（Stable B50: ${b50Display.length}${previewStableSuffix()}）`;
   }
 
   previewList.innerHTML = html;
@@ -172,7 +269,11 @@ function renderSegmentPreview() {
   const q = previewSearchQuery;
   let items = [...SEG_DATA];
   if (q) items = items.filter(seg => previewMatches(seg, q));
+  if (previewHideNoChart) {
+    items = items.filter(seg => seg.chartId !== null && seg.chartId !== undefined);
+  }
 
+  const factor = previewDirFactor();
   items.sort((a, b) => {
     const ad = segmentDifficultyValue(a);
     const bd = segmentDifficultyValue(b);
@@ -180,24 +281,23 @@ function renderSegmentPreview() {
     const br = getSegmentRating(b);
 
     if (previewSortMode === 'constant') {
-      const av = ad === null ? -Infinity : ad;
-      const bv = bd === null ? -Infinity : bd;
-      if (bv !== av) return bv - av;
-      const arv = ar === null ? -Infinity : ar;
-      const brv = br === null ? -Infinity : br;
-      if (brv !== arv) return brv - arv;
+      const diff = previewCompareNullable(ad, bd, factor);
+      if (diff !== 0) return diff;
+      const ratingDiff = previewCompareNullable(ar, br, factor);
+      if (ratingDiff !== 0) return ratingDiff;
     } else {
-      const av = ar === null ? -Infinity : ar;
-      const bv = br === null ? -Infinity : br;
-      if (bv !== av) return bv - av;
-      const adv = ad === null ? -Infinity : ad;
-      const bdv = bd === null ? -Infinity : bd;
-      if (bdv !== adv) return bdv - adv;
+      const diff = previewCompareNullable(ar, br, factor);
+      if (diff !== 0) return diff;
+      const difficultyDiff = previewCompareNullable(ad, bd, factor);
+      if (difficultyDiff !== 0) return difficultyDiff;
     }
     return String(a.name).localeCompare(String(b.name));
   });
 
-  previewCount.textContent = q ? `搜索结果 ${items.length} 个段位` : `共 ${items.length} 个段位`;
+  const dirText = previewSortDir === 'asc' ? '升序' : '降序';
+  previewCount.textContent = q
+    ? `搜索结果 ${items.length} 个段位（按${previewSortMode === 'constant' ? '难度' : 'Rating'}${dirText}${previewHideNoChart ? '，已隐藏未上架' : ''}）`
+    : `共 ${items.length} 个段位（按${previewSortMode === 'constant' ? '难度' : 'Rating'}${dirText}${previewHideNoChart ? '，已隐藏未上架' : ''}）`;
 
   if (items.length === 0) {
     previewList.innerHTML = q
@@ -293,36 +393,19 @@ previewModeButtons.forEach(btn => {
     if (previewMode === mode) return;
     previewMode = mode;
     previewModeButtons.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-    if (previewSortWrap) previewSortWrap.style.display = '';
-    if (previewStableWrap) previewStableWrap.style.display = mode === 'segment' ? 'none' : '';
-    if (mode === 'segment') {
-      previewSortMode = 'rating';
-      previewSortSelect.value = 'rating';
-    }
-    if (previewSortSelect && previewSortSelect.options.length >= 2) {
-      previewSortSelect.options[0].textContent = mode === 'segment' ? '段位 Rating' : '单曲 Rating';
-      previewSortSelect.options[1].textContent = mode === 'segment' ? '段位难度' : '难度';
-    }
     previewSearchInput.placeholder = mode === 'segment'
       ? '输入段位名或 Phira ID 搜索...'
       : '输入谱面名或 Chart ID 搜索...';
+    previewUpdateSortLabel();
     renderPreview();
   });
 });
 
-if (previewSortSelect) {
-  previewSortSelect.addEventListener('change', function() {
-    previewSortMode = this.value === 'constant' ? 'constant' : 'rating';
-    renderPreview();
-  });
+if (previewSortBtn) {
+  previewSortBtn.addEventListener('click', previewOpenSortPopover);
 }
 
-if (previewStableSelect) {
-  previewStableSelect.addEventListener('change', function() {
-    previewStableMode = ['top', 'hide'].includes(this.value) ? this.value : 'mix';
-    renderPreview();
-  });
-}
+previewUpdateSortLabel();
 
 previewSearchInput.addEventListener('input', function() {
   previewSearchQuery = this.value;
